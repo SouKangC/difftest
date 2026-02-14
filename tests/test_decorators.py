@@ -109,3 +109,38 @@ class TestDecorators:
             return "hello"
 
         assert test_func(None) == "hello"
+
+    def test_visual_regression_stores_baseline_dir(self):
+        @difftest.visual_regression(
+            prompts=["a red cube"],
+            seeds=[42],
+            baseline_dir="my_baselines/",
+        )
+        def test_with_dir(model):
+            pass
+
+        tc = get_registry()["test_with_dir"]
+        assert tc.baseline_dir == "my_baselines/"
+
+    def test_visual_regression_default_baseline_dir(self):
+        @difftest.visual_regression(
+            prompts=["a blue sphere"],
+            seeds=[42],
+        )
+        def test_default_dir(model):
+            pass
+
+        tc = get_registry()["test_default_dir"]
+        assert tc.baseline_dir == "baselines/"
+
+    def test_quality_test_has_no_baseline_dir(self):
+        @difftest.test(
+            prompts=["a dog"],
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_quality(model):
+            pass
+
+        tc = get_registry()["test_quality"]
+        assert tc.baseline_dir is None

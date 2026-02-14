@@ -75,6 +75,11 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             _ => TestType::Quality,
         };
 
+        let baseline_dir: Option<String> = py_test
+            .getattr("baseline_dir")
+            .and_then(|v| v.extract())
+            .unwrap_or(None);
+
         let metrics = metric_names
             .into_iter()
             .map(|name| MetricSpec {
@@ -90,6 +95,7 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             metrics,
             thresholds,
             test_type,
+            baseline_dir,
         });
     }
 

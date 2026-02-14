@@ -8,6 +8,7 @@ use difftest_core::suite::{ComputeBackend, MetricSpec, SuiteConfig, TestCase, Te
 pub struct PyTestRunner {
     generator: Py<PyAny>,
     clip_metric: Py<PyAny>,
+    ssim_metric: Py<PyAny>,
 }
 
 impl PyTestRunner {
@@ -20,9 +21,14 @@ impl PyTestRunner {
         let metric_cls = metric_mod.getattr("ClipScoreMetric")?;
         let clip_metric = metric_cls.call0()?.unbind();
 
+        let ssim_mod = py.import("difftest.metrics.ssim")?;
+        let ssim_cls = ssim_mod.getattr("SsimMetric")?;
+        let ssim_metric = ssim_cls.call0()?.unbind();
+
         Ok(Self {
             generator,
             clip_metric,
+            ssim_metric,
         })
     }
 
@@ -52,6 +58,65 @@ impl PyTestRunner {
             .extract(py)?;
         Ok(score)
     }
+
+    pub fn compute_ssim(
+        &self,
+        py: Python<'_>,
+        image_path: &str,
+        reference_path: &str,
+    ) -> PyResult<f64> {
+        let score: f64 = self
+            .ssim_metric
+            .call_method1(py, "compute_from_paths", (image_path, reference_path))?
+            .extract(py)?;
+        Ok(score)
+    }
+
+    pub fn load_baseline_path(
+        &self,
+        py: Python<'_>,
+        test_name: &str,
+        prompt: &str,
+        seed: u64,
+        baseline_dir: &str,
+    ) -> PyResult<Option<String>> {
+        let baselines_mod = py.import("difftest.baselines")?;
+        let result = baselines_mod.call_method1(
+            "load_baseline",
+            (test_name, prompt, seed, baseline_dir),
+        )?;
+        if result.is_none() {
+            Ok(None)
+        } else {
+            let path: String = result.extract()?;
+            Ok(Some(path))
+        }
+    }
+
+    pub fn save_baselines(
+        &self,
+        py: Python<'_>,
+        test_name: &str,
+        images: &[(String, String, u64)], // (path, prompt, seed)
+        baseline_dir: &str,
+    ) -> PyResult<Vec<String>> {
+        let baselines_mod = py.import("difftest.baselines")?;
+        let py_images: Vec<_> = images
+            .iter()
+            .map(|(path, prompt, seed)| {
+                let dict = pyo3::types::PyDict::new(py);
+                dict.set_item("path", path).unwrap();
+                dict.set_item("prompt", prompt).unwrap();
+                dict.set_item("seed", seed).unwrap();
+                dict
+            })
+            .collect();
+        let py_list = PyList::new(py, &py_images)?;
+        let result: Vec<String> = baselines_mod
+            .call_method1("save_baseline", (test_name, py_list, baseline_dir))?
+            .extract()?;
+        Ok(result)
+    }
 }
 
 pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCase>> {
@@ -75,6 +140,11 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             _ => TestType::Quality,
         };
 
+        let baseline_dir: Option<String> = py_test
+            .getattr("baseline_dir")
+            .and_then(|v| v.extract())
+            .unwrap_or(None);
+
         let metrics = metric_names
             .into_iter()
             .map(|name| MetricSpec {
@@ -90,6 +160,7 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             metrics,
             thresholds,
             test_type,
+            baseline_dir,
         });
     }
 

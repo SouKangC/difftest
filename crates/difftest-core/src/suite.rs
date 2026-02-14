@@ -16,6 +16,7 @@ pub struct TestCase {
     pub metrics: Vec<MetricSpec>,
     pub thresholds: HashMap<String, f64>,
     pub test_type: TestType,
+    pub baseline_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

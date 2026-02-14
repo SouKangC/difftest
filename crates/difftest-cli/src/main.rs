@@ -1,3 +1,4 @@
+mod baseline;
 mod bridge;
 mod run;
 
@@ -14,6 +15,8 @@ struct Cli {
 enum Commands {
     /// Run test suite against a model
     Run(run::RunArgs),
+    /// Manage baseline images for visual regression tests
+    Baseline(baseline::BaselineArgs),
 }
 
 fn main() {
@@ -21,6 +24,12 @@ fn main() {
     match cli.command {
         Commands::Run(args) => {
             if let Err(e) = run::execute(args) {
+                eprintln!("Error: {e}");
+                std::process::exit(2);
+            }
+        }
+        Commands::Baseline(args) => {
+            if let Err(e) = baseline::execute(args) {
                 eprintln!("Error: {e}");
                 std::process::exit(2);
             }

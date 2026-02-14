@@ -1,5 +1,13 @@
-"""difftest metrics — CLIP score and other quality metrics."""
+"""difftest metrics — CLIP score, SSIM, and other quality metrics."""
 
-from difftest.metrics.clip_score import ClipScoreMetric
+from difftest.metrics.ssim import SsimMetric
 
-__all__ = ["ClipScoreMetric"]
+
+def __getattr__(name):
+    if name == "ClipScoreMetric":
+        from difftest.metrics.clip_score import ClipScoreMetric
+        return ClipScoreMetric
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = ["ClipScoreMetric", "SsimMetric"]

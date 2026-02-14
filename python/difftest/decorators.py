@@ -16,6 +16,7 @@ class TestCase:
     metrics: list[str]
     thresholds: dict[str, float]
     test_type: str = "quality"
+    baseline_dir: str | None = None
 
 
 def test(
@@ -73,6 +74,7 @@ def visual_regression(
             metrics=["ssim"],
             thresholds={"ssim": ssim_threshold},
             test_type="visual_regression",
+            baseline_dir=baseline_dir,
         )
         return func
 

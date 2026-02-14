@@ -82,11 +82,16 @@ difftest will:
 4. Compute CLIP scores
 5. Compare against your thresholds
 6. Print results and exit with code 0 (all pass) or 1 (any fail)
+7. Save results to `.difftest/results.db` for history tracking
 
-### 3. Save JSON results
+### 3. Save reports
 
 ```bash
+# JSON results
 difftest run --model stabilityai/sdxl-turbo --output results.json
+
+# HTML report with side-by-side comparisons
+difftest run --model stabilityai/sdxl-turbo --html report.html
 ```
 
 ## Writing Tests
@@ -121,17 +126,39 @@ Each test generates `len(prompts) * len(seeds)` images. Metric scores are averag
 
 ### Visual regression tests
 
-Use `@difftest.visual_regression` to detect when output changes between model versions:
+Use `@difftest.visual_regression` to detect when output changes between model versions. Images are compared against saved baselines using SSIM (Structural Similarity Index):
 
 ```python
 @difftest.visual_regression(
     prompts=["a red cube on a blue table"],
     seeds=[42, 123],
-    ssim_threshold=0.85,
+    baseline_dir="baselines/",   # where reference images are stored
+    ssim_threshold=0.85,         # minimum similarity to pass
 )
 def test_deterministic(model):
     pass
 ```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prompts` | `list[str]` | Prompts to generate images from |
+| `seeds` | `list[int]` | RNG seeds (required) |
+| `baseline_dir` | `str` | Directory for baseline images. Default: `"baselines/"` |
+| `ssim_threshold` | `float` | Minimum SSIM score to pass. Default: `0.85` |
+
+**Workflow:**
+
+1. Save baselines once with a known-good model version:
+   ```bash
+   difftest baseline save --model stabilityai/sdxl-turbo
+   ```
+2. Run tests — difftest generates new images and compares them against the baselines:
+   ```bash
+   difftest run --model stabilityai/sdxl-turbo
+   ```
+3. If the model output changes (SSIM drops below threshold), the test fails.
 
 ### Custom metrics
 
@@ -154,6 +181,10 @@ def test_hands(model):
 
 ## CLI Reference
 
+### `difftest run`
+
+Run the test suite against a model.
+
 ```
 difftest run --model <MODEL> [OPTIONS]
 ```
@@ -164,8 +195,30 @@ difftest run --model <MODEL> [OPTIONS]
 | `--device` | `cpu` | Device: `cuda:0`, `mps`, `cpu` |
 | `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
 | `--output` | — | Path to write JSON results |
+| `--html` | — | Path to write HTML report with side-by-side images |
 
 **Exit codes:** `0` = all tests passed, `1` = one or more failed, `2` = error
+
+Every run is automatically saved to `.difftest/results.db` (SQLite) for history tracking.
+
+### `difftest baseline`
+
+Manage baseline images for visual regression tests.
+
+```
+# Save baselines (generate reference images)
+difftest baseline save --model <MODEL> [OPTIONS]
+
+# Update baselines (overwrites existing)
+difftest baseline update --model <MODEL> [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--model` | *required* | HuggingFace model ID or local path |
+| `--device` | `cpu` | Device: `cuda:0`, `mps`, `cpu` |
+| `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
+| `--baseline-dir` | `baselines/` | Directory to store baseline images |
 
 ## How It Works
 
@@ -175,23 +228,32 @@ Rust (orchestration + CLI)              Python (ML inference)
 │ difftest run         │                │ difftest package     │
 │  ├── discover tests  │── PyO3 call ──>│  ├── decorators.py   │
 │  ├── run suite       │                │  ├── discovery.py    │
-│  ├── collect results │<── results ────│  ├── metrics/        │
-│  └── print report    │                │  │   └── clip_score  │
-│                      │                │  └── generators/     │
-│ difftest-core        │                │      └── diffusers   │
-│  ├── suite.rs        │                └──────────────────────┘
-│  ├── runner.rs       │
-│  └── report.rs       │
+│  ├── collect results │<── results ────│  ├── baselines.py    │
+│  ├── save to SQLite  │                │  ├── metrics/        │
+│  └── print report    │                │  │   ├── clip_score  │
+│                      │                │  │   └── ssim        │
+│ difftest-core        │                │  └── generators/     │
+│  ├── suite.rs        │                │      └── diffusers   │
+│  ├── runner.rs       │                └──────────────────────┘
+│  ├── report.rs       │
+│  ├── storage.rs      │
+│  └── html_report.rs  │
 └──────────────────────┘
 ```
 
-Rust handles test orchestration, result aggregation, and reporting. Python handles model inference (image generation and metric computation). They communicate via PyO3.
+Rust handles test orchestration, result aggregation, storage, and reporting. Python handles model inference (image generation and metric computation). They communicate via PyO3.
 
-**Execution per test:**
+**Execution per test (quality):**
 1. For each `prompt x seed` → generate image via Diffusers pipeline
 2. For each image → compute requested metrics (CLIP score, etc.)
 3. Aggregate scores (mean, min, max) across all images
 4. Compare mean against threshold → pass/fail
+
+**Execution per test (visual regression):**
+1. For each `prompt x seed` → generate image via Diffusers pipeline
+2. Load corresponding baseline image from `baseline_dir`
+3. Compute SSIM between generated and baseline image
+4. Compare mean SSIM against threshold → pass/fail
 
 ## Project Structure
 
@@ -200,29 +262,37 @@ difftest/
 ├── Cargo.toml                  # Rust workspace
 ├── pyproject.toml              # Python package (maturin)
 ├── crates/
-│   ├── difftest-core/          # Rust library: types, runner, reporting
+│   ├── difftest-core/          # Rust library: types, runner, reporting, storage
 │   │   └── src/
 │   │       ├── suite.rs        # TestCase, TestSuite, SuiteConfig
 │   │       ├── runner.rs       # TestResult, MetricResult, SuiteResult
-│   │       └── report.rs       # Console + JSON output
+│   │       ├── report.rs       # Console + JSON output
+│   │       ├── storage.rs      # SQLite persistence (.difftest/results.db)
+│   │       └── html_report.rs  # HTML report with side-by-side images
 │   ├── difftest-cli/           # CLI binary
 │   │   └── src/
-│   │       ├── main.rs         # clap entry point
+│   │       ├── main.rs         # clap entry point (run, baseline)
 │   │       ├── run.rs          # `difftest run` command
+│   │       ├── baseline.rs     # `difftest baseline save/update` command
 │   │       └── bridge.rs       # PyO3 bridge to Python
 │   └── difftest-python/        # PyO3 extension module (for maturin)
 ├── python/difftest/
 │   ├── __init__.py             # Public API: test, visual_regression, metric
-│   ├── decorators.py           # Decorator registry
+│   ├── decorators.py           # Decorator registry + TestCase dataclass
 │   ├── discovery.py            # test_*.py file scanning
+│   ├── baselines.py            # Baseline save/load/exists
 │   ├── generators/
 │   │   └── diffusers.py        # HuggingFace Diffusers backend
 │   └── metrics/
-│       └── clip_score.py       # CLIP ViT-L/14 similarity
+│       ├── clip_score.py       # CLIP ViT-L/14 similarity
+│       └── ssim.py             # SSIM structural similarity
 ├── tests/                      # Framework tests (pytest)
 │   ├── test_decorators.py
 │   ├── test_suite_discovery.py
-│   └── test_metrics.py
+│   ├── test_metrics.py
+│   ├── test_ssim.py
+│   ├── test_baselines.py
+│   └── test_storage.py
 └── examples/
     └── basic_test.py
 ```
@@ -244,7 +314,7 @@ cargo check
 
 ## Roadmap
 
-### Phase 1: Core test runner with static metrics (MVP) &mdash; current
+### Phase 1: Core test runner with static metrics (MVP) &mdash; complete
 
 **Goal**: Define tests in Python, run via CLI, get pass/fail with CLIP Score.
 
@@ -256,26 +326,16 @@ cargo check
 6. CLI: `difftest run --model ./my-model`
 7. Output: console summary + JSON results file
 
-### Phase 2: Visual regression + baselines
+### Phase 2: Visual regression + baselines &mdash; complete
 
 **Goal**: Compare against saved baselines. Detect regressions across model versions.
 
-1. Baseline management: `difftest baseline save --model v1.0`
-2. `@difftest.visual_regression` decorator with SSIM/perceptual hash comparison
-3. Regression detection: compare current run against baseline, compute deltas
-4. Store results in SQLite for history: `difftest history --metric clip_score`
-5. HTML report with side-by-side image comparisons: baseline vs. current
-
-```python
-@difftest.visual_regression(
-    prompts=["a red cube on a blue table"],
-    seeds=[42, 123],
-    baseline_dir="baselines/",
-    ssim_threshold=0.85
-)
-def test_deterministic(model):
-    pass
-```
+1. SSIM metric for structural image comparison (via scikit-image)
+2. Baseline management: `difftest baseline save/update --model v1.0`
+3. `@difftest.visual_regression` decorator with `baseline_dir` parameter
+4. Visual regression flow: generate → load baseline → compute SSIM → pass/fail
+5. SQLite storage: every run persisted to `.difftest/results.db` with full metric history
+6. HTML report with summary table, per-test metrics, and image grids: `--html report.html`
 
 ### Phase 3: Additional metrics + CI integration
 
