@@ -1,0 +1,12 @@
+[package]
+name = "difftest-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "difftest_python"
+crate-type = ["cdylib"]
+
+[dependencies]
+difftest-core = { path = "../difftest-core" }
+pyo3 = { version = "0.28", features = ["extension-module"] }

@@ -1,0 +1,14 @@
+[package]
+name = "difftest-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "difftest"
+path = "src/main.rs"
+
+[dependencies]
+difftest-core = { path = "../difftest-core" }
+clap = { version = "4", features = ["derive"] }
+pyo3 = { version = "0.28", features = ["auto-initialize"] }
+serde_json = "1"

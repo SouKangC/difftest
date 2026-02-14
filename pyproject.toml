@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "difftest"
+version = "0.1.0"
+description = "pytest for diffusion models"
+requires-python = ">=3.10"
+dependencies = [
+    "transformers>=4.30",
+    "torch>=2.0",
+    "diffusers>=0.25",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "difftest.difftest_python"
+features = ["pyo3/extension-module"]

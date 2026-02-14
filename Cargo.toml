@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/difftest-core",
+    "crates/difftest-cli",
+    "crates/difftest-python",
+]
+default-members = [
+    "crates/difftest-core",
+    "crates/difftest-cli",
+]
+resolver = "2"

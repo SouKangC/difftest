@@ -1,0 +1,20 @@
+# Rust
+target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+
+# difftest outputs
+.difftest/
+
+# IDE
+.idea/
+.vscode/
+
+# pytest
+.pytest_cache/
