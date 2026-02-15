@@ -1,3 +1,4 @@
+use crate::error;
 use crate::runner::SuiteResult;
 use std::path::Path;
 
@@ -33,7 +34,7 @@ pub fn generate_console_report(result: &SuiteResult) {
 pub fn generate_json_report(
     result: &SuiteResult,
     path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> error::Result<()> {
     let json = serde_json::to_string_pretty(result)?;
     std::fs::write(path, json)?;
     Ok(())

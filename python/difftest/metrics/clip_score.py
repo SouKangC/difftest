@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
+
+try:
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
+except ImportError:
+    torch = None
+    CLIPModel = None
+    CLIPProcessor = None
 
 
 class ClipScoreMetric:
     """Compute CLIP similarity between a text prompt and a generated image."""
 
     def __init__(self, model_name: str = "openai/clip-vit-large-patch14"):
+        if torch is None:
+            from difftest.errors import MissingDependencyError
+            raise MissingDependencyError("torch", "clip", "CLIP Score metric")
         self.model = CLIPModel.from_pretrained(model_name)
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.model.eval()

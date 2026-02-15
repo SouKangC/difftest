@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import numpy as np
 from PIL import Image
-from skimage.metrics import structural_similarity
+
+try:
+    from skimage.metrics import structural_similarity
+except ImportError:
+    structural_similarity = None
 
 
 class SsimMetric:
     """Computes SSIM between two images for visual regression detection."""
+
+    def __init__(self):
+        if structural_similarity is None:
+            from difftest.errors import MissingDependencyError
+            raise MissingDependencyError("scikit-image", "ssim", "SSIM metric")
 
     def compute(self, image: Image.Image, reference: Image.Image) -> float:
         """Compute SSIM between two PIL images.

@@ -2,6 +2,8 @@ use clap::{Args, Subcommand};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
+use difftest_core::error::DifftestError;
+
 #[derive(Args)]
 pub struct AgentArgs {
     #[command(subcommand)]
@@ -86,7 +88,7 @@ pub enum AgentCommands {
     },
 }
 
-pub fn execute(args: AgentArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute(args: AgentArgs) -> difftest_core::error::Result<()> {
     match args.command {
         AgentCommands::Design {
             model_description,
@@ -141,7 +143,7 @@ fn execute_design(
     llm_model: &Option<String>,
     llm_api_key: &Option<String>,
     output_dir: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> difftest_core::error::Result<()> {
     println!("Designing test suite for: {model_description}");
     println!("Using LLM provider: {llm_provider}");
 
@@ -184,7 +186,7 @@ fn execute_design(
         }
 
         Ok(())
-    })?;
+    }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
     Ok(())
 }
@@ -195,7 +197,7 @@ fn execute_diagnose(
     llm_model: &Option<String>,
     llm_api_key: &Option<String>,
     db_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> difftest_core::error::Result<()> {
     println!("Diagnosing test failures...");
     println!("Using LLM provider: {llm_provider}");
 
@@ -245,7 +247,7 @@ fn execute_diagnose(
         }
 
         Ok(())
-    })?;
+    }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
     Ok(())
 }
@@ -257,7 +259,7 @@ fn execute_track(
     llm_model: &Option<String>,
     llm_api_key: &Option<String>,
     db_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> difftest_core::error::Result<()> {
     println!("Tracking metric regressions...");
     println!("Using LLM provider: {llm_provider}");
 
@@ -303,7 +305,7 @@ fn execute_track(
         }
 
         Ok(())
-    })?;
+    }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
     Ok(())
 }

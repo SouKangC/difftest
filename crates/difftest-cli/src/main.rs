@@ -4,6 +4,7 @@ mod bridge;
 mod run;
 
 use clap::{Parser, Subcommand};
+use difftest_core::error::DifftestError;
 
 #[derive(Parser)]
 #[command(name = "difftest", about = "pytest for diffusion models")]
@@ -24,24 +25,27 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    match cli.command {
-        Commands::Run(args) => {
-            if let Err(e) = run::execute(args) {
+    let result = match cli.command {
+        Commands::Run(args) => run::execute(args),
+        Commands::Baseline(args) => baseline::execute(args),
+        Commands::Agent(args) => agent::execute(args),
+    };
+
+    if let Err(e) = result {
+        match &e {
+            DifftestError::Config { field, value, reason } => {
+                eprintln!("Configuration error: {field} = {value}: {reason}");
+            }
+            DifftestError::SuiteTimeout { timeout_seconds } => {
+                eprintln!("Suite timeout exceeded ({timeout_seconds}s)");
+            }
+            DifftestError::ConfigFile(msg) => {
+                eprintln!("Config file error: {msg}");
+            }
+            _ => {
                 eprintln!("Error: {e}");
-                std::process::exit(2);
             }
         }
-        Commands::Baseline(args) => {
-            if let Err(e) = baseline::execute(args) {
-                eprintln!("Error: {e}");
-                std::process::exit(2);
-            }
-        }
-        Commands::Agent(args) => {
-            if let Err(e) = agent::execute(args) {
-                eprintln!("Error: {e}");
-                std::process::exit(2);
-            }
-        }
+        std::process::exit(2);
     }
 }

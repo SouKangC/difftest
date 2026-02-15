@@ -23,6 +23,17 @@ METRIC_META = {
 }
 
 
+_METRIC_EXTRAS = {
+    "clip_score": ("torch", "clip"),
+    "ssim": ("scikit-image", "ssim"),
+    "image_reward": ("torch", "image-reward"),
+    "aesthetic_score": ("torch", "aesthetic"),
+    "fid": ("torch", "fid"),
+    "geneval": ("torch", "geneval"),
+    "vlm_judge": (None, None),
+}
+
+
 def create_metric(name: str):
     """Create a metric instance by name with lazy imports."""
     if name not in _METRIC_REGISTRY:
@@ -30,7 +41,14 @@ def create_metric(name: str):
             f"Unknown metric: {name!r}. Available: {list(_METRIC_REGISTRY.keys())}"
         )
     module_path, class_name = _METRIC_REGISTRY[name]
-    module = importlib.import_module(module_path)
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as exc:
+        pkg, extra = _METRIC_EXTRAS.get(name, (None, None))
+        if pkg and extra:
+            from difftest.errors import MissingDependencyError
+            raise MissingDependencyError(pkg, extra, f"{name} metric") from exc
+        raise
     cls = getattr(module, class_name)
     return cls()
 

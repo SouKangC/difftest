@@ -6,6 +6,7 @@ use clap::Args;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
+use difftest_core::error::DifftestError;
 use difftest_core::report;
 use difftest_core::runner::{GeneratedImage, MetricResult, SuiteResult, TestResult};
 use difftest_core::suite::{MetricCategory, TestType};
@@ -89,7 +90,7 @@ fn build_generator_config(args: &RunArgs) -> HashMap<String, String> {
     config
 }
 
-pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
     let suite_start = Instant::now();
 
     let html_path = args.html.clone();
@@ -174,7 +175,7 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         let suite_duration = suite_start.elapsed().as_millis() as u64;
         Ok(SuiteResult::from_results(results, suite_duration))
-    })?;
+    }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
     // Console report
     report::generate_console_report(&suite_result);

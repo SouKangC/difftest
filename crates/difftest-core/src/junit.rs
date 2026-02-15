@@ -1,12 +1,13 @@
 use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
+use crate::error;
 use crate::runner::SuiteResult;
 
 pub fn generate_junit_xml(
     result: &SuiteResult,
     output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> error::Result<()> {
     let mut xml = String::new();
 
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");

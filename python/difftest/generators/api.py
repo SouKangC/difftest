@@ -56,12 +56,14 @@ class _FalAdapter:
                 resp.raise_for_status()
                 return self._download_from_result(resp.json())
             if status.get("status") == "FAILED":
-                raise RuntimeError(
-                    f"fal.ai request failed: {status.get('error', 'unknown')}"
+                from difftest.errors import GeneratorError
+                raise GeneratorError(
+                    "fal", f"Request failed: {status.get('error', 'unknown')}"
                 )
             time.sleep(1)
 
-        raise TimeoutError(f"fal.ai request timed out after {timeout}s")
+        from difftest.errors import TimeoutError as DifftestTimeout
+        raise DifftestTimeout(f"fal.ai request timed out after {timeout}s")
 
     def _download_from_result(self, result: dict) -> Image.Image:
         import requests
@@ -72,7 +74,8 @@ class _FalAdapter:
             if image_obj:
                 images = [image_obj]
         if not images:
-            raise RuntimeError(f"No images in fal.ai response: {result}")
+            from difftest.errors import GeneratorError
+            raise GeneratorError("fal", f"No images in response: {result}")
 
         image_url = images[0].get("url", "")
         resp = requests.get(image_url)
@@ -126,21 +129,24 @@ class _ReplicateAdapter:
                 elif isinstance(output, str):
                     image_url = output
                 else:
-                    raise RuntimeError(
-                        f"Unexpected Replicate output format: {output}"
+                    from difftest.errors import GeneratorError
+                    raise GeneratorError(
+                        "replicate", f"Unexpected output format: {output}"
                     )
                 img_resp = requests.get(image_url)
                 img_resp.raise_for_status()
                 return Image.open(io.BytesIO(img_resp.content))
 
             if data["status"] == "failed":
-                raise RuntimeError(
-                    f"Replicate prediction failed: {data.get('error', 'unknown')}"
+                from difftest.errors import GeneratorError
+                raise GeneratorError(
+                    "replicate", f"Prediction failed: {data.get('error', 'unknown')}"
                 )
 
             time.sleep(1)
 
-        raise TimeoutError(
+        from difftest.errors import TimeoutError as DifftestTimeout
+        raise DifftestTimeout(
             f"Replicate prediction timed out after {timeout}s"
         )
 
@@ -184,8 +190,9 @@ class _CustomAdapter:
                     else images[0]
                 )
         if not image_url:
-            raise RuntimeError(
-                f"Could not find image URL in custom API response: {data}"
+            from difftest.errors import GeneratorError
+            raise GeneratorError(
+                "custom", f"Could not find image URL in response: {data}"
             )
 
         img_resp = requests.get(image_url)
@@ -214,10 +221,8 @@ class APIGenerator(BaseGenerator):
         try:
             import requests  # noqa: F401
         except ImportError:
-            raise ImportError(
-                "API generator requires 'requests'. "
-                "Install with: pip install difftest[api]"
-            )
+            from difftest.errors import MissingDependencyError
+            raise MissingDependencyError("requests", "api", "API generator")
 
         resolved_key = api_key or os.environ.get("DIFFTEST_API_KEY", "")
 

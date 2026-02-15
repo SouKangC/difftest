@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
+use difftest_core::error::DifftestError;
 use difftest_core::suite::TestType;
 
 #[derive(Args)]
@@ -88,7 +89,7 @@ fn build_generator_config(args: &BaselineSaveArgs) -> HashMap<String, String> {
     config
 }
 
-pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
     let save_args = match args.command {
         BaselineCommand::Save(a) | BaselineCommand::Update(a) => a,
     };
@@ -169,7 +170,7 @@ pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Baselines saved successfully.");
         Ok(())
-    })?;
+    }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
     Ok(())
 }

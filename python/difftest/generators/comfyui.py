@@ -28,10 +28,8 @@ class ComfyUIGenerator(BaseGenerator):
         try:
             import requests  # noqa: F401
         except ImportError:
-            raise ImportError(
-                "ComfyUI generator requires 'requests'. "
-                "Install with: pip install difftest[comfyui]"
-            )
+            from difftest.errors import MissingDependencyError
+            raise MissingDependencyError("requests", "comfyui", "ComfyUI generator")
 
         self.base_url = comfyui_url.rstrip("/")
         if workflow_path is None:
@@ -88,7 +86,8 @@ class ComfyUIGenerator(BaseGenerator):
             if prompt_id in data:
                 return data[prompt_id]
             time.sleep(interval)
-        raise TimeoutError(
+        from difftest.errors import TimeoutError as DifftestTimeout
+        raise DifftestTimeout(
             f"ComfyUI workflow did not complete within {timeout}s"
         )
 
@@ -129,7 +128,8 @@ class ComfyUIGenerator(BaseGenerator):
                     img_info.get("type", "output"),
                 )
 
-        raise RuntimeError(
-            f"ComfyUI workflow completed but produced no output images "
-            f"(prompt_id={prompt_id})"
+        from difftest.errors import GeneratorError
+        raise GeneratorError(
+            "comfyui",
+            f"Workflow completed but produced no output images (prompt_id={prompt_id})",
         )

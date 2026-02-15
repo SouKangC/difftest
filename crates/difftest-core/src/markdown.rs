@@ -1,12 +1,13 @@
 use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
+use crate::error;
 use crate::runner::SuiteResult;
 
 pub fn generate_markdown_report(
     result: &SuiteResult,
     output_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> error::Result<()> {
     let mut md = String::new();
 
     // Header with pass/fail status

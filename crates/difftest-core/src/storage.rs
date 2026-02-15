@@ -2,6 +2,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection};
 
+use crate::error;
 use crate::runner::SuiteResult;
 
 pub struct Storage {
@@ -9,21 +10,21 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(path: &Path) -> error::Result<Self> {
         let conn = Connection::open(path)?;
         let storage = Self { conn };
         storage.migrate()?;
         Ok(storage)
     }
 
-    pub fn new_in_memory() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new_in_memory() -> error::Result<Self> {
         let conn = Connection::open_in_memory()?;
         let storage = Self { conn };
         storage.migrate()?;
         Ok(storage)
     }
 
-    fn migrate(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn migrate(&self) -> error::Result<()> {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +63,7 @@ impl Storage {
         model: &str,
         device: &str,
         result: &SuiteResult,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> error::Result<i64> {
         let timestamp = chrono::Utc::now().to_rfc3339();
 
         self.conn.execute(
@@ -128,7 +129,7 @@ impl Storage {
         Ok(run_id)
     }
 
-    pub fn get_latest_run(&self) -> Result<Option<LatestRun>, Box<dyn std::error::Error>> {
+    pub fn get_latest_run(&self) -> error::Result<Option<LatestRun>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, model_name, device, timestamp, total_passed, total_failed, duration_ms
              FROM runs ORDER BY id DESC LIMIT 1",
@@ -157,7 +158,7 @@ impl Storage {
         test_name: &str,
         metric_name: &str,
         limit: usize,
-    ) -> Result<Vec<(String, f64)>, Box<dyn std::error::Error>> {
+    ) -> error::Result<Vec<(String, f64)>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.timestamp, AVG(ms.value)
              FROM metric_samples ms
