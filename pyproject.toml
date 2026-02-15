@@ -37,6 +37,20 @@ comfyui = [
 api = [
     "requests>=2.28",
 ]
+agent = [
+    "anthropic>=0.30",
+]
+agent-openai = [
+    "openai>=1.0",
+]
+agent-local = [
+    "requests>=2.28",
+]
+vlm-judge = []
+vlm-judge-local = [
+    "transformers>=4.40",
+    "torch>=2.0",
+]
 
 [tool.maturin]
 python-source = "python"

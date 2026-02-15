@@ -25,7 +25,7 @@ class TestMetricRegistry:
         assert callable(metric.compute_from_path)
 
     def test_registry_contains_expected_metrics(self):
-        expected = {"clip_score", "ssim", "image_reward", "aesthetic_score", "fid", "geneval"}
+        expected = {"clip_score", "ssim", "image_reward", "aesthetic_score", "fid", "geneval", "vlm_judge"}
         assert set(_METRIC_REGISTRY.keys()) == expected
 
     def test_get_metric_meta_known(self):

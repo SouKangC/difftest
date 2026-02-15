@@ -9,6 +9,7 @@ _METRIC_REGISTRY = {
     "aesthetic_score": ("difftest.metrics.aesthetic_score", "AestheticScoreMetric"),
     "fid": ("difftest.metrics.fid", "FidMetric"),
     "geneval": ("difftest.metrics.geneval", "GenevalMetric"),
+    "vlm_judge": ("difftest.metrics.vlm_judge", "VlmJudgeMetric"),
 }
 
 METRIC_META = {
@@ -18,6 +19,7 @@ METRIC_META = {
     "aesthetic_score": {"category": "per_sample", "direction": "higher_is_better"},
     "fid": {"category": "batch", "direction": "lower_is_better"},
     "geneval": {"category": "per_sample", "direction": "higher_is_better"},
+    "vlm_judge": {"category": "per_sample", "direction": "higher_is_better"},
 }
 
 

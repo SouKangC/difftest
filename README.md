@@ -64,6 +64,15 @@ pip install -e ".[comfyui]"
 
 # API generator backend (fal.ai, Replicate, custom)
 pip install -e ".[api]"
+
+# Agent features (Claude LLM provider)
+pip install -e ".[agent]"
+
+# Agent with OpenAI provider
+pip install -e ".[agent-openai]"
+
+# Agent with local Ollama (just needs requests)
+pip install -e ".[agent-local]"
 ```
 
 The CLI binary is at `target/debug/difftest` after building. The Python package is available directly from the `python/` directory.
@@ -414,6 +423,31 @@ Compositional evaluation via CLIP sub-prompt decomposition. Splits complex promp
 )
 ```
 
+### VLM Judge (`vlm_judge`)
+
+Uses a vision-language model (Claude, GPT-4o, or local LLaVA) to score generated images on prompt adherence, visual quality, coherence, and artifacts. Returns a structured score with reasoning.
+
+- **Range:** 0.0 to 1.0
+- **Direction:** Higher is better
+- **Requires:** An LLM provider (`pip install -e ".[agent]"` for Claude, `.[agent-openai]` for OpenAI)
+
+```python
+@difftest.test(
+    prompts=["a photorealistic portrait with natural lighting"],
+    metrics=["vlm_judge"],
+    threshold={"vlm_judge": 0.7}
+)
+```
+
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `DIFFTEST_VLM_PROVIDER` | LLM provider to use: `claude`, `openai`, `local`. Default: `claude` |
+| `DIFFTEST_VLM_MODEL` | Model override (e.g. `gpt-4o`, `llava`) |
+| `ANTHROPIC_API_KEY` | API key for Claude provider |
+| `OPENAI_API_KEY` | API key for OpenAI provider |
+
 ## CLI Reference
 
 ### `difftest run`
@@ -469,6 +503,68 @@ difftest baseline update --model <MODEL> [OPTIONS]
 | `--api-key` | — | API key |
 | `--endpoint` | — | Custom API endpoint URL |
 
+### `difftest agent`
+
+LLM-powered test design, failure diagnosis, and regression tracking.
+
+#### `difftest agent design`
+
+Use an LLM to auto-generate a test suite for a model.
+
+```bash
+difftest agent design \
+  --model-description "SDXL Turbo - fast text-to-image, 1 step inference" \
+  --num-tests 5 \
+  --llm-provider claude \
+  --output-dir tests/
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--model-description` | (required) | Description of the model to test |
+| `--num-tests` | `5` | Number of tests to generate |
+| `--llm-provider` | `claude` | LLM provider: `claude`, `openai`, `local` |
+| `--llm-model` | — | Override the LLM model (e.g. `gpt-4o`, `llama3`) |
+| `--llm-api-key` | — | API key (falls back to provider-specific env var) |
+| `--output-dir` | `.` | Directory for the generated test file |
+
+Generates a `difftest_generated_tests.py` file with `@difftest.test` and `@difftest.visual_regression` decorators ready to run.
+
+#### `difftest agent diagnose`
+
+Analyze test failures from the latest run and get actionable suggestions.
+
+```bash
+difftest agent diagnose --llm-provider claude
+difftest agent diagnose --test-name test_quality --llm-provider openai
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--test-name` | — | Specific test to diagnose (omit for all failed tests) |
+| `--llm-provider` | `claude` | LLM provider: `claude`, `openai`, `local` |
+| `--llm-model` | — | Override the LLM model |
+| `--llm-api-key` | — | API key |
+| `--db-path` | `.difftest/results.db` | Path to the SQLite database |
+
+#### `difftest agent track`
+
+Analyze metric trends over time and alert on regressions.
+
+```bash
+difftest agent track --llm-provider claude --limit 20
+difftest agent track --test-name test_quality --llm-provider local --llm-model llama3
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--test-name` | — | Specific test to track (omit for all tests) |
+| `--limit` | `20` | Number of historical runs to analyze |
+| `--llm-provider` | `claude` | LLM provider: `claude`, `openai`, `local` |
+| `--llm-model` | — | Override the LLM model |
+| `--llm-api-key` | — | API key |
+| `--db-path` | `.difftest/results.db` | Path to the SQLite database |
+
 ## CI Integration
 
 ### GitHub Actions
@@ -503,7 +599,7 @@ See `examples/github-actions.yml` for a complete workflow with caching and artif
 ## How It Works
 
 ```
-Rust (orchestration + CLI)              Python (ML inference)
+Rust (orchestration + CLI)              Python (ML inference + agent)
 ┌──────────────────────┐                ┌──────────────────────┐
 │ difftest run         │                │ difftest package     │
 │  ├── discover tests  │── PyO3 call ──>│  ├── decorators.py   │
@@ -512,14 +608,23 @@ Rust (orchestration + CLI)              Python (ML inference)
 │  ├── save to SQLite  │                │  ├── metrics/        │
 │  └── generate reports│                │  │   ├── clip_score   │
 │                      │                │  │   ├── ssim         │
-│ difftest-core        │                │  │   ├── image_reward │
-│  ├── suite.rs        │                │  │   ├── aesthetic    │
-│  ├── runner.rs       │                │  │   ├── fid          │
-│  ├── report.rs       │                │  │   └── geneval      │
-│  ├── storage.rs      │                │  ├── generators/      │
-│  ├── html_report.rs  │                │  │   ├── diffusers    │
-│  ├── junit.rs        │                │  │   ├── comfyui      │
-│  ├── markdown.rs     │                │  │   └── api          │
+│ difftest agent       │                │  │   ├── image_reward │
+│  ├── design          │── PyO3 call ──>│  │   ├── aesthetic    │
+│  ├── diagnose        │                │  │   ├── fid          │
+│  └── track           │<── results ────│  │   ├── geneval      │
+│                      │                │  │   └── vlm_judge    │
+│ difftest-core        │                │  ├── generators/      │
+│  ├── suite.rs        │                │  │   ├── diffusers    │
+│  ├── runner.rs       │                │  │   ├── comfyui      │
+│  ├── report.rs       │                │  │   └── api          │
+│  ├── storage.rs      │                │  ├── llm/             │
+│  ├── html_report.rs  │                │  │   ├── claude       │
+│  ├── junit.rs        │                │  │   ├── openai       │
+│  ├── markdown.rs     │                │  │   └── local        │
+│                      │                │  ├── agent/           │
+│                      │                │  │   ├── designer     │
+│                      │                │  │   ├── diagnostician│
+│                      │                │  │   └── tracker      │
 │                      │                │  └── prompts/         │
 │                      │                │      ├── registry     │
 │                      │                │      ├── templating   │
@@ -561,9 +666,10 @@ difftest/
 │   │       └── markdown.rs     # Markdown summary for PR comments
 │   ├── difftest-cli/           # CLI binary
 │   │   └── src/
-│   │       ├── main.rs         # clap entry point (run, baseline)
+│   │       ├── main.rs         # clap entry point (run, baseline, agent)
 │   │       ├── run.rs          # `difftest run` command
 │   │       ├── baseline.rs     # `difftest baseline save/update` command
+│   │       ├── agent.rs        # `difftest agent design/diagnose/track` commands
 │   │       └── bridge.rs       # PyO3 bridge to Python
 │   └── difftest-python/        # PyO3 extension module (for maturin)
 ├── python/difftest/
@@ -580,14 +686,28 @@ difftest/
 │   │   ├── registry.py         # Suite loading + get_prompts()
 │   │   ├── templating.py       # {var} expansion with cartesian product
 │   │   └── suites/             # JSON prompt suite files
-│   └── metrics/
-│       ├── __init__.py         # Registry + create_metric() factory
-│       ├── clip_score.py       # CLIP ViT-L/14 similarity
-│       ├── ssim.py             # SSIM structural similarity
-│       ├── image_reward.py     # Human preference score
-│       ├── aesthetic_score.py  # LAION aesthetic predictor
-│       ├── fid.py              # Frechet Inception Distance (batch)
-│       └── geneval.py          # Compositional evaluation
+│   ├── metrics/
+│   │   ├── __init__.py         # Registry + create_metric() factory
+│   │   ├── clip_score.py       # CLIP ViT-L/14 similarity
+│   │   ├── ssim.py             # SSIM structural similarity
+│   │   ├── image_reward.py     # Human preference score
+│   │   ├── aesthetic_score.py  # LAION aesthetic predictor
+│   │   ├── fid.py              # Frechet Inception Distance (batch)
+│   │   ├── geneval.py          # Compositional evaluation
+│   │   └── vlm_judge.py        # VLM Judge (cloud/local VLM scoring)
+│   ├── llm/                    # LLM provider abstraction
+│   │   ├── __init__.py         # Registry + create_llm() factory
+│   │   ├── base.py             # BaseLLMProvider protocol
+│   │   ├── claude.py           # Anthropic Claude provider
+│   │   ├── openai_provider.py  # OpenAI provider
+│   │   └── local.py            # Ollama / vLLM local provider
+│   └── agent/                  # LLM-powered intelligence
+│       ├── __init__.py         # Public API exports
+│       ├── prompts.py          # Prompt templates for agent modules
+│       ├── designer.py         # Test suite designer
+│       ├── diagnostician.py    # Failure diagnostician
+│       ├── tracker.py          # Regression tracker
+│       └── bridge.py           # Rust CLI → Python bridge helpers
 ├── tests/                      # Framework tests (pytest)
 │   ├── test_decorators.py
 │   ├── test_suite_discovery.py
@@ -604,7 +724,13 @@ difftest/
 │   ├── test_prompt_suites.py
 │   ├── test_prompt_templating.py
 │   ├── test_comfyui_generator.py
-│   └── test_api_generator.py
+│   ├── test_api_generator.py
+│   ├── test_llm_registry.py
+│   ├── test_llm_providers.py
+│   ├── test_vlm_judge.py
+│   ├── test_agent_designer.py
+│   ├── test_agent_diagnostician.py
+│   └── test_agent_tracker.py
 └── examples/
     ├── basic_test.py
     └── github-actions.yml      # CI workflow template
@@ -673,22 +799,26 @@ cargo check
 5. ComfyUI generator backend: workflow injection, HTTP polling, image download
 6. API generator backend: fal.ai, Replicate, and custom endpoint adapters
 
-### Phase 5: Agent-powered test design + diagnosis
+### Phase 5: Agent-powered test design + diagnosis &mdash; complete
 
-The agent layer that makes difftest unique:
+**Goal**: LLM-powered intelligence for test design, failure diagnosis, and regression tracking.
 
-1. **Agent test designer**: Given a model description and training data info, auto-generate targeted test suites
-2. **Agent failure diagnostician**: When tests fail, agent analyzes generated images and explains why
-3. **Agent regression tracker**: Agent correlates quality changes with training data/config changes
-4. **VLM Judge metric**: Use VLM (Qwen2.5-VL) as a flexible, promptable evaluator
+1. Provider-agnostic LLM layer: `BaseLLMProvider` + registry + factory (`claude`, `openai`, `local`)
+2. Claude provider (Anthropic API with vision support)
+3. OpenAI provider (GPT-4o with vision support)
+4. Local provider (Ollama/vLLM HTTP endpoint with vision support)
+5. VLM Judge metric: uses any LLM provider to score images on quality, coherence, and prompt adherence
+6. Agent test designer: `difftest agent design` — LLM designs targeted test suites from model descriptions
+7. Agent failure diagnostician: `difftest agent diagnose` — LLM analyzes failures with actionable suggestions
+8. Agent regression tracker: `difftest agent track` — LLM identifies trends and alerts on regressions
 
 ```python
-suite = difftest.agent.design_suite(
-    model="./my-anime-lora",
-    base_model="sdxl",
-    description="Anime character style LoRA trained on 200 images"
-)
-# Agent creates: test_anime_style, test_base_retention, test_hand_quality, etc.
+from difftest.agent import design_suite
+from difftest.llm import create_llm
+
+llm = create_llm("claude", api_key="...")
+tests = design_suite(llm, "SDXL Turbo - fast text-to-image, 1 step inference")
+# Returns: [DesignedTest(name='test_basic_objects', ...), ...]
 ```
 
 ## License

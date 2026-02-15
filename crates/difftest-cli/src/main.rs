@@ -1,3 +1,4 @@
+mod agent;
 mod baseline;
 mod bridge;
 mod run;
@@ -17,6 +18,8 @@ enum Commands {
     Run(run::RunArgs),
     /// Manage baseline images for visual regression tests
     Baseline(baseline::BaselineArgs),
+    /// LLM-powered test design, diagnosis, and regression tracking
+    Agent(agent::AgentArgs),
 }
 
 fn main() {
@@ -30,6 +33,12 @@ fn main() {
         }
         Commands::Baseline(args) => {
             if let Err(e) = baseline::execute(args) {
+                eprintln!("Error: {e}");
+                std::process::exit(2);
+            }
+        }
+        Commands::Agent(args) => {
+            if let Err(e) = agent::execute(args) {
                 eprintln!("Error: {e}");
                 std::process::exit(2);
             }
