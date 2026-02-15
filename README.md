@@ -50,7 +50,9 @@ cargo build
 Optional extras for metrics and backends:
 
 ```bash
-pip install -e ".[all-metrics]"   # All metrics (CLIP, SSIM, FID, ImageReward, etc.)
+pip install -e ".[all-metrics]"   # All metrics (CLIP, SSIM, FID, ImageReward, LPIPS, DreamSim, etc.)
+pip install -e ".[lpips]"         # LPIPS metric (perceptual distance)
+pip install -e ".[dreamsim]"      # DreamSim metric (semantic similarity)
 pip install -e ".[comfyui]"       # ComfyUI generator backend
 pip install -e ".[api]"           # Cloud API backends (fal.ai, Replicate, custom)
 pip install -e ".[agent]"         # LLM agent features (Claude)
@@ -165,6 +167,7 @@ def test_generation_quality(model):
 | `reference_dir` | `str` | Directory of reference images (required for FID) |
 | `suite` | `str` | Built-in prompt suite name (see [Prompt Suites](#prompt-suites)) |
 | `variables` | `dict` | Variables for template expansion (see [Prompt Templating](#prompt-templating)) |
+| `negative_prompt` | `str` | Negative prompt passed to the generator (optional) |
 
 Each test generates `len(prompts) * len(seeds)` images. Scores are averaged — the test passes if the mean meets the threshold.
 
@@ -233,6 +236,11 @@ def test_hand_quality(model):
 | `text` | Text rendering (signs, labels, handwriting) |
 | `composition` | Spatial composition (object placement, relationships) |
 | `styles` | Artistic styles (impressionism, watercolor, pixel art) |
+| `medical` | Medical imaging (X-rays, MRI scans, anatomical diagrams) |
+| `architecture` | Buildings and spaces (skyscrapers, interiors, bridges) |
+| `food` | Food photography (plated dishes, cooking, markets) |
+| `animals` | Wildlife and pets (birds, sea life, domestic animals) |
+| `abstract` | Abstract art (geometric patterns, color fields, fractals) |
 
 ```python
 difftest.list_suites()       # ['composition', 'general', 'hands', ...]
@@ -297,8 +305,13 @@ API key can also be set via `DIFFTEST_API_KEY` environment variable.
 | FID | `fid` | 0–∞ | Lower is better | `scipy`, `torchvision` |
 | GENEVAL | `geneval` | 0–1 | Higher is better | `transformers`, `torch` |
 | VLM Judge | `vlm_judge` | 0–1 | Higher is better | LLM provider (`.[agent]`) |
+| LPIPS | `lpips` | 0–1 | Lower is better | `lpips`, `torchvision` |
+| PickScore | `pick_score` | ~15–25 | Higher is better | `transformers`, `torch` |
+| DreamSim | `dreamsim` | 0–1 | Lower is better | `dreamsim` |
 
 **FID** is a batch metric — it requires `reference_dir` pointing to a directory of reference images.
+
+**LPIPS** and **DreamSim** are reference-based metrics — they require `reference_path` (passed automatically in visual regression tests, or via `reference_dir` for quality tests).
 
 **VLM Judge** uses a vision-language model (Claude, GPT-4o, or local LLaVA) to score images. Configure via environment variables: `DIFFTEST_VLM_PROVIDER`, `DIFFTEST_VLM_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`.
 
@@ -329,10 +342,11 @@ Run the test suite against a model.
 | `--timeout` | — | Suite timeout in seconds (skip remaining tests if exceeded) |
 | `--image-timeout` | — | Per-image generation timeout in seconds |
 | `--incremental` | — | Skip regeneration for identical prompt/seed/model combos |
+| `--min-samples` | — | Minimum sample count required for a metric to pass |
 
 **Exit codes:** `0` = all passed, `1` = any failed, `2` = error
 
-Results are saved to `.difftest/results.db` (SQLite) on every run.
+Results are saved to `.difftest/results.db` (SQLite) on every run. All metric results include 95% confidence intervals (when 2+ samples) computed via the t-distribution.
 
 ### `difftest baseline`
 
@@ -344,6 +358,39 @@ difftest baseline update --model <MODEL>    # Overwrite existing baselines
 ```
 
 Supports the same `--device`, `--test-dir`, `--generator`, `--filter`, and `--test` options as `difftest run`.
+
+### `difftest compare`
+
+Statistically compare two runs stored in `.difftest/results.db`.
+
+```bash
+difftest compare --run-a 1 --run-b 2
+difftest compare --run-a 1 --run-b 2 --output comparison.json --markdown comparison.md
+```
+
+For each shared test/metric pair, computes:
+- **Welch's t-test** for statistical significance (p<0.05, p<0.01, p<0.001)
+- **Cohen's d** effect size (small ≈ 0.2, medium ≈ 0.5, large ≈ 0.8)
+
+```
+Comparing Run #1 (sdxl-turbo) vs Run #2 (sdxl-base)
+
+test_basic
+  clip_score:    0.312 vs 0.298  (d=0.45, p<0.05*)    → A wins
+  ssim:          0.891 vs 0.923  (d=-0.62, p<0.01**)   → B wins
+
+test_hands
+  clip_score:    0.285 vs 0.291  (d=-0.12, n.s.)       → No significant difference
+
+Legend: * p<0.05  ** p<0.01  *** p<0.001
+```
+
+| Option | Description |
+|--------|-------------|
+| `--run-a` | First run ID |
+| `--run-b` | Second run ID |
+| `--output` | Write JSON comparison results |
+| `--markdown` | Write Markdown comparison report |
 
 ### `difftest agent`
 
@@ -411,7 +458,8 @@ Rust (orchestration + CLI)              Python (ML inference)
 │                      │                │  │   └── api         │
 │ difftest-core        │                │  ├── metrics/        │
 │  ├── types + runner  │                │  │   ├── clip_score  │
-│  ├── storage         │                │  │   ├── ssim        │
+│  ├── compare (A/B)   │                │  │   ├── ssim        │
+│  ├── storage         │                │  │   ├── lpips       │
 │  └── reports (HTML,  │                │  │   └── ...         │
 │      JUnit, Markdown)│                │  ├── llm/ + agent/   │
 │                      │                │  └── prompts/        │

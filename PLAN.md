@@ -95,14 +95,14 @@ tests = design_suite(llm, "SDXL Turbo - fast text-to-image, 1 step inference")
 
 ---
 
-## Phase 7: Advanced Testing & New Metrics
+## Phase 7: Advanced Testing & New Metrics — complete
 
 **Goal**: Expand metric coverage and introduce statistical rigor for model comparison.
 
 1. New metrics: LPIPS (learned perceptual similarity), PickScore (human preference DPO), DreamSim (semantic CLIP/DINO ensemble)
-2. A/B model comparison: `difftest compare --run-a <id> --run-b <id>` with Welch's t-test and effect size
-3. Statistical significance: 95% confidence intervals in all output formats, `--min-samples` flag
-4. Negative prompt support in `@difftest.test` decorator, passed through to all generator backends
+2. A/B model comparison: `difftest compare --run-a <id> --run-b <id>` with Welch's t-test and Cohen's d effect size
+3. Statistical significance: 95% confidence intervals (t-distribution) in all output formats, `--min-samples` flag
+4. Negative prompt support in `@difftest.test` and `@difftest.visual_regression` decorators, threaded through Rust bridge to all generator backends
 5. Additional prompt suites: medical, architecture, food, animals, abstract (10 prompts each)
 
 ---
