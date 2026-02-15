@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pyo3::prelude::*;
-use pyo3::types::PyList;
+use pyo3::types::{PyDict, PyList};
 
 use difftest_core::suite::{
     ComputeBackend, MetricCategory, MetricDirection, MetricSpec, SuiteConfig, TestCase, TestSuite,
@@ -18,13 +18,17 @@ pub struct PyTestRunner {
 impl PyTestRunner {
     pub fn new(
         py: Python<'_>,
-        model_id: &str,
-        device: &str,
+        generator_name: &str,
+        generator_config: &HashMap<String, String>,
         required_metrics: &[String],
     ) -> PyResult<Self> {
-        let generator_mod = py.import("difftest.generators.diffusers")?;
-        let generator_cls = generator_mod.getattr("DiffusersGenerator")?;
-        let generator = generator_cls.call1((model_id, device))?.unbind();
+        let gen_mod = py.import("difftest.generators")?;
+        let create_gen = gen_mod.getattr("create_generator")?;
+        let kwargs = PyDict::new(py);
+        for (k, v) in generator_config {
+            kwargs.set_item(k, v)?;
+        }
+        let generator = create_gen.call((generator_name,), Some(&kwargs))?.unbind();
 
         let metrics_mod = py.import("difftest.metrics")?;
         let create_metric = metrics_mod.getattr("create_metric")?;
@@ -230,6 +234,8 @@ pub fn discover_and_build_suite(
     model_id: &str,
     device: &str,
     output_dir: &str,
+    generator: &str,
+    generator_config: &HashMap<String, String>,
 ) -> PyResult<TestSuite> {
     let tests = discover_tests_py(py, test_dir)?;
     Ok(TestSuite {
@@ -238,6 +244,8 @@ pub fn discover_and_build_suite(
             output_dir: output_dir.into(),
             model_id: model_id.to_string(),
             device: device.to_string(),
+            generator: generator.to_string(),
+            generator_config: generator_config.clone(),
         },
     })
 }

@@ -57,6 +57,8 @@ pub struct SuiteConfig {
     pub output_dir: PathBuf,
     pub model_id: String,
     pub device: String,
+    pub generator: String,
+    pub generator_config: HashMap<String, String>,
 }
 
 impl Default for SuiteConfig {
@@ -65,6 +67,8 @@ impl Default for SuiteConfig {
             output_dir: PathBuf::from(".difftest/outputs"),
             model_id: String::new(),
             device: "cpu".to_string(),
+            generator: "diffusers".to_string(),
+            generator_config: HashMap::new(),
         }
     }
 }

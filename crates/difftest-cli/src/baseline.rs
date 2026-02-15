@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use clap::{Args, Subcommand};
@@ -22,8 +23,8 @@ pub enum BaselineCommand {
 
 #[derive(Args, Clone)]
 pub struct BaselineSaveArgs {
-    /// HuggingFace model ID or local path
-    #[arg(long)]
+    /// HuggingFace model ID or local path (required for diffusers generator)
+    #[arg(long, default_value = "")]
     model: String,
 
     /// Device to run on (cuda:0, mps, cpu)
@@ -37,12 +38,63 @@ pub struct BaselineSaveArgs {
     /// Directory to store baseline images
     #[arg(long, default_value = "baselines/")]
     baseline_dir: String,
+
+    /// Generator backend: diffusers, comfyui, api
+    #[arg(long, default_value = "diffusers")]
+    generator: String,
+
+    /// ComfyUI server URL (for --generator comfyui)
+    #[arg(long)]
+    comfyui_url: Option<String>,
+
+    /// ComfyUI workflow JSON file path (for --generator comfyui)
+    #[arg(long)]
+    workflow: Option<String>,
+
+    /// API provider: fal, replicate, custom (for --generator api)
+    #[arg(long)]
+    provider: Option<String>,
+
+    /// API key (for --generator api; falls back to DIFFTEST_API_KEY env var)
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// API endpoint URL (for --generator api with custom provider)
+    #[arg(long)]
+    endpoint: Option<String>,
+}
+
+fn build_generator_config(args: &BaselineSaveArgs) -> HashMap<String, String> {
+    let mut config = HashMap::new();
+    if !args.model.is_empty() {
+        config.insert("model_id".to_string(), args.model.clone());
+    }
+    config.insert("device".to_string(), args.device.clone());
+    if let Some(ref url) = args.comfyui_url {
+        config.insert("comfyui_url".to_string(), url.clone());
+    }
+    if let Some(ref wf) = args.workflow {
+        config.insert("workflow_path".to_string(), wf.clone());
+    }
+    if let Some(ref provider) = args.provider {
+        config.insert("provider".to_string(), provider.clone());
+    }
+    if let Some(ref key) = args.api_key {
+        config.insert("api_key".to_string(), key.clone());
+    }
+    if let Some(ref ep) = args.endpoint {
+        config.insert("endpoint".to_string(), ep.clone());
+    }
+    config
 }
 
 pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
     let save_args = match args.command {
         BaselineCommand::Save(a) | BaselineCommand::Update(a) => a,
     };
+
+    let generator_name = save_args.generator.clone();
+    let generator_config = build_generator_config(&save_args);
 
     Python::attach(|py| -> PyResult<()> {
         let sys = py.import("sys")?;
@@ -57,6 +109,8 @@ pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
             &save_args.model,
             &save_args.device,
             ".difftest/outputs",
+            &generator_name,
+            &generator_config,
         )?;
 
         let vr_tests: Vec<_> = suite
@@ -72,8 +126,12 @@ pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("Found {} visual regression test(s)", vr_tests.len());
 
         // Initialize generator
-        println!("Loading model {}...", save_args.model);
-        let runner = crate::bridge::PyTestRunner::new(py, &save_args.model, &save_args.device, &[])?;
+        if generator_name == "diffusers" {
+            println!("Loading model {}...", save_args.model);
+        } else {
+            println!("Initializing {} generator...", generator_name);
+        }
+        let runner = crate::bridge::PyTestRunner::new(py, &generator_name, &generator_config, &[])?;
 
         for test_case in &vr_tests {
             let start = Instant::now();

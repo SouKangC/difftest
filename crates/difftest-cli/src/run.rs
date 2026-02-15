@@ -12,8 +12,8 @@ use difftest_core::suite::{MetricCategory, TestType};
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// HuggingFace model ID or local path
-    #[arg(long)]
+    /// HuggingFace model ID or local path (required for diffusers generator)
+    #[arg(long, default_value = "")]
     model: String,
 
     /// Device to run on (cuda:0, mps, cpu)
@@ -39,6 +39,54 @@ pub struct RunArgs {
     /// Write Markdown summary to this path
     #[arg(long)]
     markdown: Option<String>,
+
+    /// Generator backend: diffusers, comfyui, api
+    #[arg(long, default_value = "diffusers")]
+    generator: String,
+
+    /// ComfyUI server URL (for --generator comfyui)
+    #[arg(long)]
+    comfyui_url: Option<String>,
+
+    /// ComfyUI workflow JSON file path (for --generator comfyui)
+    #[arg(long)]
+    workflow: Option<String>,
+
+    /// API provider: fal, replicate, custom (for --generator api)
+    #[arg(long)]
+    provider: Option<String>,
+
+    /// API key (for --generator api; falls back to DIFFTEST_API_KEY env var)
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// API endpoint URL (for --generator api with custom provider)
+    #[arg(long)]
+    endpoint: Option<String>,
+}
+
+fn build_generator_config(args: &RunArgs) -> HashMap<String, String> {
+    let mut config = HashMap::new();
+    if !args.model.is_empty() {
+        config.insert("model_id".to_string(), args.model.clone());
+    }
+    config.insert("device".to_string(), args.device.clone());
+    if let Some(ref url) = args.comfyui_url {
+        config.insert("comfyui_url".to_string(), url.clone());
+    }
+    if let Some(ref wf) = args.workflow {
+        config.insert("workflow_path".to_string(), wf.clone());
+    }
+    if let Some(ref provider) = args.provider {
+        config.insert("provider".to_string(), provider.clone());
+    }
+    if let Some(ref key) = args.api_key {
+        config.insert("api_key".to_string(), key.clone());
+    }
+    if let Some(ref ep) = args.endpoint {
+        config.insert("endpoint".to_string(), ep.clone());
+    }
+    config
 }
 
 pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,6 +97,8 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let markdown_path = args.markdown.clone();
     let model_id = args.model.clone();
     let device = args.device.clone();
+    let generator_name = args.generator.clone();
+    let generator_config = build_generator_config(&args);
 
     let suite_result: SuiteResult = Python::attach(|py| -> PyResult<SuiteResult> {
         // Add the python/ directory to Python path so `difftest` package is importable
@@ -64,6 +114,8 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
             &args.model,
             &args.device,
             ".difftest/outputs",
+            &args.generator,
+            &generator_config,
         )?;
 
         if suite.tests.is_empty() {
@@ -82,9 +134,13 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         required_metrics.dedup();
 
         // Initialize generator and metrics
-        println!("Loading model {}...", args.model);
+        if generator_name == "diffusers" {
+            println!("Loading model {}...", args.model);
+        } else {
+            println!("Initializing {} generator...", generator_name);
+        }
         let runner =
-            crate::bridge::PyTestRunner::new(py, &args.model, &args.device, &required_metrics)?;
+            crate::bridge::PyTestRunner::new(py, &generator_name, &generator_config, &required_metrics)?;
 
         // Run each test
         let mut results = Vec::new();
