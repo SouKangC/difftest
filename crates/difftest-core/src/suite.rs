@@ -17,6 +17,7 @@ pub struct TestCase {
     pub thresholds: HashMap<String, f64>,
     pub test_type: TestType,
     pub baseline_dir: Option<String>,
+    pub reference_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -29,12 +30,26 @@ pub enum TestType {
 pub struct MetricSpec {
     pub name: String,
     pub compute_in: ComputeBackend,
+    pub category: MetricCategory,
+    pub direction: MetricDirection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ComputeBackend {
     Rust,
     Python,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MetricCategory {
+    PerSample,
+    Batch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MetricDirection {
+    HigherIsBetter,
+    LowerIsBetter,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

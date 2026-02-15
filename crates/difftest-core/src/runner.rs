@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::suite::TestCase;
+use crate::suite::{MetricDirection, TestCase};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuiteResult {
@@ -47,6 +47,14 @@ pub struct RunConfig {
 
 impl MetricResult {
     pub fn from_scores(scores: Vec<f64>, threshold: f64) -> Self {
+        Self::from_scores_with_direction(scores, threshold, &MetricDirection::HigherIsBetter)
+    }
+
+    pub fn from_scores_with_direction(
+        scores: Vec<f64>,
+        threshold: f64,
+        direction: &MetricDirection,
+    ) -> Self {
         let mean = if scores.is_empty() {
             0.0
         } else {
@@ -54,7 +62,10 @@ impl MetricResult {
         };
         let min = scores.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let passed = mean >= threshold;
+        let passed = match direction {
+            MetricDirection::HigherIsBetter => mean >= threshold,
+            MetricDirection::LowerIsBetter => mean <= threshold,
+        };
 
         Self {
             per_sample: scores,

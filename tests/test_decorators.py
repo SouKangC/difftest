@@ -144,3 +144,28 @@ class TestDecorators:
 
         tc = get_registry()["test_quality"]
         assert tc.baseline_dir is None
+
+    def test_quality_test_reference_dir(self):
+        @difftest.test(
+            prompts=["a dog"],
+            metrics=["fid"],
+            threshold={"fid": 50.0},
+            reference_dir="ref_images/",
+        )
+        def test_fid(model):
+            pass
+
+        tc = get_registry()["test_fid"]
+        assert tc.reference_dir == "ref_images/"
+
+    def test_quality_test_no_reference_dir(self):
+        @difftest.test(
+            prompts=["a dog"],
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_no_ref(model):
+            pass
+
+        tc = get_registry()["test_no_ref"]
+        assert tc.reference_dir is None

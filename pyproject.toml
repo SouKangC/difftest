@@ -19,6 +19,18 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+image-reward = [
+    "image-reward>=1.0",
+]
+fid = [
+    "scipy>=1.10",
+    "torchvision>=0.15",
+]
+all-metrics = [
+    "image-reward>=1.0",
+    "scipy>=1.10",
+    "torchvision>=0.15",
+]
 
 [tool.maturin]
 python-source = "python"

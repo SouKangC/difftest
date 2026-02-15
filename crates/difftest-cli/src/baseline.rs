@@ -73,7 +73,7 @@ pub fn execute(args: BaselineArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         // Initialize generator
         println!("Loading model {}...", save_args.model);
-        let runner = crate::bridge::PyTestRunner::new(py, &save_args.model, &save_args.device)?;
+        let runner = crate::bridge::PyTestRunner::new(py, &save_args.model, &save_args.device, &[])?;
 
         for test_case in &vr_tests {
             let start = Instant::now();

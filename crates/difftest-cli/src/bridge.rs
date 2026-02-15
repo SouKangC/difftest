@@ -1,35 +1,41 @@
+use std::collections::HashMap;
+
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
-use difftest_core::suite::{ComputeBackend, MetricSpec, SuiteConfig, TestCase, TestSuite, TestType};
+use difftest_core::suite::{
+    ComputeBackend, MetricCategory, MetricDirection, MetricSpec, SuiteConfig, TestCase, TestSuite,
+    TestType,
+};
 
 /// Bridge from Rust CLI to Python — calls into the difftest Python package
 /// for test discovery, image generation, and metric computation.
 pub struct PyTestRunner {
     generator: Py<PyAny>,
-    clip_metric: Py<PyAny>,
-    ssim_metric: Py<PyAny>,
+    metrics: HashMap<String, Py<PyAny>>,
 }
 
 impl PyTestRunner {
-    pub fn new(py: Python<'_>, model_id: &str, device: &str) -> PyResult<Self> {
+    pub fn new(
+        py: Python<'_>,
+        model_id: &str,
+        device: &str,
+        required_metrics: &[String],
+    ) -> PyResult<Self> {
         let generator_mod = py.import("difftest.generators.diffusers")?;
         let generator_cls = generator_mod.getattr("DiffusersGenerator")?;
         let generator = generator_cls.call1((model_id, device))?.unbind();
 
-        let metric_mod = py.import("difftest.metrics.clip_score")?;
-        let metric_cls = metric_mod.getattr("ClipScoreMetric")?;
-        let clip_metric = metric_cls.call0()?.unbind();
+        let metrics_mod = py.import("difftest.metrics")?;
+        let create_metric = metrics_mod.getattr("create_metric")?;
 
-        let ssim_mod = py.import("difftest.metrics.ssim")?;
-        let ssim_cls = ssim_mod.getattr("SsimMetric")?;
-        let ssim_metric = ssim_cls.call0()?.unbind();
+        let mut metrics = HashMap::new();
+        for name in required_metrics {
+            let metric_instance = create_metric.call1((name.as_str(),))?.unbind();
+            metrics.insert(name.clone(), metric_instance);
+        }
 
-        Ok(Self {
-            generator,
-            clip_metric,
-            ssim_metric,
-        })
+        Ok(Self { generator, metrics })
     }
 
     pub fn generate_image(
@@ -46,28 +52,41 @@ impl PyTestRunner {
         Ok(path)
     }
 
-    pub fn compute_clip_score(
+    pub fn compute_metric(
         &self,
         py: Python<'_>,
+        metric_name: &str,
         image_path: &str,
-        prompt: &str,
+        prompt: Option<&str>,
+        reference_path: Option<&str>,
     ) -> PyResult<f64> {
-        let score: f64 = self
-            .clip_metric
-            .call_method1(py, "compute_from_path", (image_path, prompt))?
+        let metric = self.metrics.get(metric_name).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Metric not loaded: {metric_name}"))
+        })?;
+        let score: f64 = metric
+            .call_method1(
+                py,
+                "compute_from_path",
+                (image_path, prompt, reference_path),
+            )?
             .extract(py)?;
         Ok(score)
     }
 
-    pub fn compute_ssim(
+    pub fn compute_batch_metric(
         &self,
         py: Python<'_>,
-        image_path: &str,
-        reference_path: &str,
+        metric_name: &str,
+        generated_paths: &[String],
+        reference_paths: &[String],
     ) -> PyResult<f64> {
-        let score: f64 = self
-            .ssim_metric
-            .call_method1(py, "compute_from_paths", (image_path, reference_path))?
+        let metric = self.metrics.get(metric_name).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Metric not loaded: {metric_name}"))
+        })?;
+        let py_gen = PyList::new(py, generated_paths)?;
+        let py_ref = PyList::new(py, reference_paths)?;
+        let score: f64 = metric
+            .call_method1(py, "compute_batch", (py_gen, py_ref))?
             .extract(py)?;
         Ok(score)
     }
@@ -125,6 +144,9 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
         .call_method1("discover_tests", (test_dir,))?
         .cast_into()?;
 
+    let metrics_mod = py.import("difftest.metrics")?;
+    let get_meta = metrics_mod.getattr("get_metric_meta")?;
+
     let mut tests = Vec::new();
     for py_test in py_tests.iter() {
         let name: String = py_test.getattr("name")?.extract()?;
@@ -145,11 +167,39 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             .and_then(|v| v.extract())
             .unwrap_or(None);
 
+        let reference_dir: Option<String> = py_test
+            .getattr("reference_dir")
+            .and_then(|v| v.extract())
+            .unwrap_or(None);
+
         let metrics = metric_names
             .into_iter()
-            .map(|name| MetricSpec {
-                name,
-                compute_in: ComputeBackend::Python,
+            .map(|mname| {
+                let meta = get_meta.call1((mname.as_str(),)).ok();
+                let (category, direction) = if let Some(ref meta) = meta {
+                    let cat_str = extract_dict_str(meta, "category")
+                        .unwrap_or_else(|| "per_sample".to_string());
+                    let dir_str = extract_dict_str(meta, "direction")
+                        .unwrap_or_else(|| "higher_is_better".to_string());
+                    let category = match cat_str.as_str() {
+                        "batch" => MetricCategory::Batch,
+                        _ => MetricCategory::PerSample,
+                    };
+                    let direction = match dir_str.as_str() {
+                        "lower_is_better" => MetricDirection::LowerIsBetter,
+                        _ => MetricDirection::HigherIsBetter,
+                    };
+                    (category, direction)
+                } else {
+                    (MetricCategory::PerSample, MetricDirection::HigherIsBetter)
+                };
+
+                MetricSpec {
+                    name: mname,
+                    compute_in: ComputeBackend::Python,
+                    category,
+                    direction,
+                }
             })
             .collect();
 
@@ -161,10 +211,17 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             thresholds,
             test_type,
             baseline_dir,
+            reference_dir,
         });
     }
 
     Ok(tests)
+}
+
+fn extract_dict_str(obj: &Bound<'_, pyo3::PyAny>, key: &str) -> Option<String> {
+    obj.get_item(key)
+        .ok()
+        .and_then(|val| val.extract::<String>().ok())
 }
 
 pub fn discover_and_build_suite(

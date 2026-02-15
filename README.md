@@ -47,6 +47,19 @@ pip install -e ".[dev]"
 cargo build
 ```
 
+For additional metrics:
+
+```bash
+# ImageReward metric
+pip install -e ".[image-reward]"
+
+# FID metric (requires scipy + torchvision)
+pip install -e ".[fid]"
+
+# All metrics
+pip install -e ".[all-metrics]"
+```
+
 The CLI binary is at `target/debug/difftest` after building. The Python package is available directly from the `python/` directory.
 
 ## Quick Start
@@ -92,6 +105,12 @@ difftest run --model stabilityai/sdxl-turbo --output results.json
 
 # HTML report with side-by-side comparisons
 difftest run --model stabilityai/sdxl-turbo --html report.html
+
+# JUnit XML for CI systems
+difftest run --model stabilityai/sdxl-turbo --junit report.xml
+
+# Markdown summary for PR comments
+difftest run --model stabilityai/sdxl-turbo --markdown summary.md
 ```
 
 ## Writing Tests
@@ -118,9 +137,10 @@ def test_generation_quality(model):
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `prompts` | `list[str]` | Prompts to generate images from |
-| `metrics` | `list[str]` | Metrics to compute (`"clip_score"`) |
-| `threshold` | `dict[str, float]` | Minimum mean score to pass |
+| `metrics` | `list[str]` | Metrics to compute (see Available Metrics) |
+| `threshold` | `dict[str, float]` | Minimum mean score to pass (or maximum for FID) |
 | `seeds` | `list[int]` | RNG seeds for reproducibility. Default: `[42, 123, 456]` |
+| `reference_dir` | `str \| None` | Directory of reference images (required for FID) |
 
 Each test generates `len(prompts) * len(seeds)` images. Metric scores are averaged across all images — the test passes if the mean meets the threshold.
 
@@ -179,6 +199,97 @@ def test_hands(model):
     pass
 ```
 
+## Available Metrics
+
+### CLIP Score (`clip_score`)
+
+Measures how well a generated image matches its text prompt using CLIP ViT-L/14.
+
+- **Range:** 0.0 to 1.0
+- **Direction:** Higher is better
+- **Requires:** `transformers`, `torch`
+
+```python
+@difftest.test(
+    prompts=["a cat on a windowsill"],
+    metrics=["clip_score"],
+    threshold={"clip_score": 0.25}
+)
+```
+
+### SSIM (`ssim`)
+
+Structural Similarity Index for comparing images against baselines. Used automatically by `@difftest.visual_regression`.
+
+- **Range:** 0.0 to 1.0
+- **Direction:** Higher is better (1.0 = identical)
+- **Requires:** `scikit-image`
+
+### ImageReward (`image_reward`)
+
+Human preference score trained on real user feedback data. Predicts how well an image aligns with human expectations.
+
+- **Range:** roughly -2.0 to 2.0
+- **Direction:** Higher is better
+- **Requires:** `pip install image-reward`
+
+```python
+@difftest.test(
+    prompts=["a photorealistic landscape"],
+    metrics=["image_reward"],
+    threshold={"image_reward": 0.5}
+)
+```
+
+### Aesthetic Score (`aesthetic_score`)
+
+Predicts aesthetic quality using CLIP embeddings and a LAION-trained linear predictor. Works without a prompt.
+
+- **Range:** roughly 1.0 to 10.0
+- **Direction:** Higher is better
+- **Requires:** `transformers`, `torch`
+
+```python
+@difftest.test(
+    prompts=["a beautiful sunset over mountains"],
+    metrics=["aesthetic_score"],
+    threshold={"aesthetic_score": 5.0}
+)
+```
+
+### FID (`fid`)
+
+Frechet Inception Distance — measures the distance between feature distributions of generated and reference image sets. This is a **batch metric** that compares entire sets rather than individual images.
+
+- **Range:** 0.0 to infinity
+- **Direction:** Lower is better (0 = identical distributions)
+- **Requires:** `pip install -e ".[fid]"` (scipy, torchvision)
+
+```python
+@difftest.test(
+    prompts=["a landscape", "a portrait"],
+    metrics=["fid"],
+    threshold={"fid": 50.0},
+    reference_dir="reference_images/"  # required for FID
+)
+```
+
+### GENEVAL (`geneval`)
+
+Compositional evaluation via CLIP sub-prompt decomposition. Splits complex prompts into components and ensures each is represented in the generated image. Score = minimum component similarity.
+
+- **Range:** 0.0 to 1.0
+- **Direction:** Higher is better
+- **Requires:** `transformers`, `torch`
+
+```python
+@difftest.test(
+    prompts=["two cats and a dog on a red couch"],
+    metrics=["geneval"],
+    threshold={"geneval": 0.20}
+)
+```
+
 ## CLI Reference
 
 ### `difftest run`
@@ -196,6 +307,8 @@ difftest run --model <MODEL> [OPTIONS]
 | `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
 | `--output` | — | Path to write JSON results |
 | `--html` | — | Path to write HTML report with side-by-side images |
+| `--junit` | — | Path to write JUnit XML report (for CI systems) |
+| `--markdown` | — | Path to write Markdown summary (for PR comments) |
 
 **Exit codes:** `0` = all tests passed, `1` = one or more failed, `2` = error
 
@@ -220,6 +333,37 @@ difftest baseline update --model <MODEL> [OPTIONS]
 | `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
 | `--baseline-dir` | `baselines/` | Directory to store baseline images |
 
+## CI Integration
+
+### GitHub Actions
+
+difftest is designed for CI/CD pipelines. Use `--junit` and `--markdown` flags to generate CI-friendly output.
+
+```yaml
+# .github/workflows/difftest.yml
+- name: Run difftest
+  run: |
+    difftest run \
+      --model stabilityai/sdxl-turbo \
+      --junit report.xml \
+      --markdown summary.md \
+      --html report.html
+
+- name: Publish JUnit results
+  uses: dorny/test-reporter@v1
+  with:
+    name: Difftest Results
+    path: report.xml
+    reporter: java-junit
+
+- name: Post PR comment
+  uses: marocchino/sticky-pull-request-comment@v2
+  with:
+    path: summary.md
+```
+
+See `examples/github-actions.yml` for a complete workflow with caching and artifact uploads.
+
 ## How It Works
 
 ```
@@ -230,14 +374,16 @@ Rust (orchestration + CLI)              Python (ML inference)
 │  ├── run suite       │                │  ├── discovery.py    │
 │  ├── collect results │<── results ────│  ├── baselines.py    │
 │  ├── save to SQLite  │                │  ├── metrics/        │
-│  └── print report    │                │  │   ├── clip_score  │
-│                      │                │  │   └── ssim        │
-│ difftest-core        │                │  └── generators/     │
-│  ├── suite.rs        │                │      └── diffusers   │
-│  ├── runner.rs       │                └──────────────────────┘
-│  ├── report.rs       │
-│  ├── storage.rs      │
-│  └── html_report.rs  │
+│  └── generate reports│                │  │   ├── clip_score   │
+│                      │                │  │   ├── ssim         │
+│ difftest-core        │                │  │   ├── image_reward │
+│  ├── suite.rs        │                │  │   ├── aesthetic    │
+│  ├── runner.rs       │                │  │   ├── fid          │
+│  ├── report.rs       │                │  │   └── geneval      │
+│  ├── storage.rs      │                │  └── generators/     │
+│  ├── html_report.rs  │                │      └── diffusers   │
+│  ├── junit.rs        │                └──────────────────────┘
+│  └── markdown.rs     │
 └──────────────────────┘
 ```
 
@@ -245,9 +391,10 @@ Rust handles test orchestration, result aggregation, storage, and reporting. Pyt
 
 **Execution per test (quality):**
 1. For each `prompt x seed` → generate image via Diffusers pipeline
-2. For each image → compute requested metrics (CLIP score, etc.)
-3. Aggregate scores (mean, min, max) across all images
-4. Compare mean against threshold → pass/fail
+2. For each image → compute requested metrics (CLIP score, ImageReward, etc.)
+3. For batch metrics (FID) → compute after all images are generated
+4. Aggregate scores (mean, min, max) across all images
+5. Compare mean against threshold → pass/fail
 
 **Execution per test (visual regression):**
 1. For each `prompt x seed` → generate image via Diffusers pipeline
@@ -264,11 +411,13 @@ difftest/
 ├── crates/
 │   ├── difftest-core/          # Rust library: types, runner, reporting, storage
 │   │   └── src/
-│   │       ├── suite.rs        # TestCase, TestSuite, SuiteConfig
+│   │       ├── suite.rs        # TestCase, TestSuite, MetricSpec, MetricDirection
 │   │       ├── runner.rs       # TestResult, MetricResult, SuiteResult
 │   │       ├── report.rs       # Console + JSON output
 │   │       ├── storage.rs      # SQLite persistence (.difftest/results.db)
-│   │       └── html_report.rs  # HTML report with side-by-side images
+│   │       ├── html_report.rs  # HTML report with side-by-side images
+│   │       ├── junit.rs        # JUnit XML report for CI
+│   │       └── markdown.rs     # Markdown summary for PR comments
 │   ├── difftest-cli/           # CLI binary
 │   │   └── src/
 │   │       ├── main.rs         # clap entry point (run, baseline)
@@ -284,17 +433,28 @@ difftest/
 │   ├── generators/
 │   │   └── diffusers.py        # HuggingFace Diffusers backend
 │   └── metrics/
+│       ├── __init__.py         # Registry + create_metric() factory
 │       ├── clip_score.py       # CLIP ViT-L/14 similarity
-│       └── ssim.py             # SSIM structural similarity
+│       ├── ssim.py             # SSIM structural similarity
+│       ├── image_reward.py     # Human preference score
+│       ├── aesthetic_score.py  # LAION aesthetic predictor
+│       ├── fid.py              # Frechet Inception Distance (batch)
+│       └── geneval.py          # Compositional evaluation
 ├── tests/                      # Framework tests (pytest)
 │   ├── test_decorators.py
 │   ├── test_suite_discovery.py
 │   ├── test_metrics.py
 │   ├── test_ssim.py
 │   ├── test_baselines.py
-│   └── test_storage.py
+│   ├── test_storage.py
+│   ├── test_metric_registry.py
+│   ├── test_image_reward.py
+│   ├── test_aesthetic_score.py
+│   ├── test_fid.py
+│   └── test_geneval.py
 └── examples/
-    └── basic_test.py
+    ├── basic_test.py
+    └── github-actions.yml      # CI workflow template
 ```
 
 ## Development
@@ -337,15 +497,17 @@ cargo check
 5. SQLite storage: every run persisted to `.difftest/results.db` with full metric history
 6. HTML report with summary table, per-test metrics, and image grids: `--html report.html`
 
-### Phase 3: Additional metrics + CI integration
+### Phase 3: Additional metrics + CI integration &mdash; complete
 
 **Goal**: Full metric suite, JUnit XML output, GitHub Actions recipe.
 
-1. Add metrics: ImageReward, Aesthetic Score, FID (batch), GENEVAL composition
-2. JUnit XML output: `difftest ci --junit report.xml`
-3. GitHub Actions workflow file (in examples/)
-4. Exit code semantics: 0 = all pass, 1 = failures, 2 = errors
-5. Markdown summary output for PR comments
+1. Metric registry with `create_metric()` factory and lazy imports
+2. New metrics: ImageReward, Aesthetic Score, FID (batch), GENEVAL (composition)
+3. `MetricDirection` (higher/lower is better) and `MetricCategory` (per-sample/batch) enums
+4. Generic metric dispatch in bridge (replaces hardcoded per-metric methods)
+5. JUnit XML output: `--junit report.xml`
+6. Markdown summary: `--markdown summary.md` (for PR comments)
+7. GitHub Actions example workflow with caching and artifact uploads
 
 ### Phase 4: Built-in prompt suites + ComfyUI backend
 

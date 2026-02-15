@@ -17,6 +17,7 @@ class TestCase:
     thresholds: dict[str, float]
     test_type: str = "quality"
     baseline_dir: str | None = None
+    reference_dir: str | None = None
 
 
 def test(
@@ -24,6 +25,7 @@ def test(
     metrics: list[str],
     threshold: dict[str, float],
     seeds: list[int] | None = None,
+    reference_dir: str | None = None,
 ) -> Callable:
     """Register a quality test.
 
@@ -44,6 +46,7 @@ def test(
             metrics=metrics,
             thresholds=threshold,
             test_type="quality",
+            reference_dir=reference_dir,
         )
         return func
 

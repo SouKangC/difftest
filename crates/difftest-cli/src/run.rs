@@ -8,7 +8,7 @@ use pyo3::types::PyList;
 
 use difftest_core::report;
 use difftest_core::runner::{GeneratedImage, MetricResult, SuiteResult, TestResult};
-use difftest_core::suite::TestType;
+use difftest_core::suite::{MetricCategory, TestType};
 
 #[derive(Args)]
 pub struct RunArgs {
@@ -31,12 +31,22 @@ pub struct RunArgs {
     /// Write HTML report to this path
     #[arg(long)]
     html: Option<String>,
+
+    /// Write JUnit XML report to this path
+    #[arg(long)]
+    junit: Option<String>,
+
+    /// Write Markdown summary to this path
+    #[arg(long)]
+    markdown: Option<String>,
 }
 
 pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let suite_start = Instant::now();
 
     let html_path = args.html.clone();
+    let junit_path = args.junit.clone();
+    let markdown_path = args.markdown.clone();
     let model_id = args.model.clone();
     let device = args.device.clone();
 
@@ -62,9 +72,19 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
         println!("Found {} test(s)", suite.tests.len());
 
+        // Collect unique metric names for initialization
+        let mut required_metrics: Vec<String> = suite
+            .tests
+            .iter()
+            .flat_map(|t| t.metrics.iter().map(|m| m.name.clone()))
+            .collect();
+        required_metrics.sort();
+        required_metrics.dedup();
+
         // Initialize generator and metrics
         println!("Loading model {}...", args.model);
-        let runner = crate::bridge::PyTestRunner::new(py, &args.model, &args.device)?;
+        let runner =
+            crate::bridge::PyTestRunner::new(py, &args.model, &args.device, &required_metrics)?;
 
         // Run each test
         let mut results = Vec::new();
@@ -115,6 +135,21 @@ pub fn execute(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("HTML report written to {html_path}");
     }
 
+    // JUnit XML report
+    if let Some(junit_path) = &junit_path {
+        difftest_core::junit::generate_junit_xml(&suite_result, Path::new(junit_path))?;
+        println!("JUnit XML report written to {junit_path}");
+    }
+
+    // Markdown report
+    if let Some(markdown_path) = &markdown_path {
+        difftest_core::markdown::generate_markdown_report(
+            &suite_result,
+            Path::new(markdown_path),
+        )?;
+        println!("Markdown report written to {markdown_path}");
+    }
+
     // SQLite storage
     let db_dir = Path::new(".difftest");
     if !db_dir.exists() {
@@ -141,6 +176,18 @@ fn run_quality_test(
     let mut all_images = Vec::new();
     let mut metric_scores: HashMap<String, Vec<f64>> = HashMap::new();
 
+    // Separate per-sample and batch metrics
+    let per_sample_metrics: Vec<_> = test_case
+        .metrics
+        .iter()
+        .filter(|m| m.category == MetricCategory::PerSample)
+        .collect();
+    let batch_metrics: Vec<_> = test_case
+        .metrics
+        .iter()
+        .filter(|m| m.category == MetricCategory::Batch)
+        .collect();
+
     for metric_spec in &test_case.metrics {
         metric_scores.insert(metric_spec.name.clone(), Vec::new());
     }
@@ -160,14 +207,15 @@ fn run_quality_test(
                 seed,
             });
 
-            for metric_spec in &test_case.metrics {
-                let score = match metric_spec.name.as_str() {
-                    "clip_score" => runner.compute_clip_score(py, &image_path, prompt)?,
-                    _ => {
-                        eprintln!("Unknown metric: {}", metric_spec.name);
-                        0.0
-                    }
-                };
+            // Compute per-sample metrics
+            for metric_spec in &per_sample_metrics {
+                let score = runner.compute_metric(
+                    py,
+                    &metric_spec.name,
+                    &image_path,
+                    Some(prompt.as_str()),
+                    None,
+                )?;
                 metric_scores
                     .get_mut(&metric_spec.name)
                     .unwrap()
@@ -176,14 +224,50 @@ fn run_quality_test(
         }
     }
 
+    // Compute batch metrics (e.g. FID)
+    for metric_spec in &batch_metrics {
+        let generated_paths: Vec<String> = all_images.iter().map(|i| i.path.clone()).collect();
+
+        // Collect reference paths from reference_dir
+        let reference_paths: Vec<String> = if let Some(ref_dir) = &test_case.reference_dir {
+            std::fs::read_dir(ref_dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| {
+                            e.path()
+                                .extension()
+                                .map(|ext| ext == "png" || ext == "jpg" || ext == "jpeg")
+                                .unwrap_or(false)
+                        })
+                        .map(|e| e.path().to_string_lossy().to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let score =
+            runner.compute_batch_metric(py, &metric_spec.name, &generated_paths, &reference_paths)?;
+        metric_scores
+            .get_mut(&metric_spec.name)
+            .unwrap()
+            .push(score);
+    }
+
     let mut metric_results = HashMap::new();
-    for (metric_name, scores) in metric_scores {
+    for metric_spec in &test_case.metrics {
+        let scores = metric_scores.remove(&metric_spec.name).unwrap_or_default();
         let threshold = test_case
             .thresholds
-            .get(&metric_name)
+            .get(&metric_spec.name)
             .copied()
             .unwrap_or(0.0);
-        metric_results.insert(metric_name, MetricResult::from_scores(scores, threshold));
+        metric_results.insert(
+            metric_spec.name.clone(),
+            MetricResult::from_scores_with_direction(scores, threshold, &metric_spec.direction),
+        );
     }
 
     Ok(TestResult::from_metrics(
@@ -228,7 +312,13 @@ fn run_visual_regression(
             // Look up baseline
             match runner.load_baseline_path(py, &test_case.name, prompt, seed, baseline_dir)? {
                 Some(baseline_path) => {
-                    let score = runner.compute_ssim(py, &image_path, &baseline_path)?;
+                    let score = runner.compute_metric(
+                        py,
+                        "ssim",
+                        &image_path,
+                        Some(prompt.as_str()),
+                        Some(&baseline_path),
+                    )?;
                     ssim_scores.push(score);
                 }
                 None => {

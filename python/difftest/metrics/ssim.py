@@ -30,3 +30,9 @@ class SsimMetric:
         image = Image.open(image_path)
         reference = Image.open(reference_path)
         return self.compute(image, reference)
+
+    def compute_from_path(self, image_path: str, prompt: str | None = None, reference_path: str | None = None) -> float:
+        """Uniform interface: compute SSIM from file paths."""
+        if reference_path is None:
+            raise ValueError("SsimMetric requires a reference_path")
+        return self.compute_from_paths(image_path, reference_path)

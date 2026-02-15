@@ -1,0 +1,102 @@
+# Example GitHub Actions workflow for difftest CI
+# Copy this file to .github/workflows/difftest.yml in your project
+
+name: Diffusion Model Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "models/**"
+      - "training/**"
+      - "tests/test_*.py"
+  pull_request:
+    paths:
+      - "models/**"
+      - "training/**"
+      - "tests/test_*.py"
+
+jobs:
+  difftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-${{ hashFiles('tests/test_*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-
+
+      - name: Install Python dependencies
+        run: pip install -e ".[all-metrics,dev]"
+
+      - name: Build difftest
+        run: cargo build --release
+
+      - name: Run difftest
+        run: |
+          ./target/release/difftest run \
+            --model stabilityai/sdxl-turbo \
+            --device cpu \
+            --output results.json \
+            --html report.html \
+            --junit report.xml \
+            --markdown summary.md
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: difftest-results
+          path: |
+            results.json
+            report.html
+            report.xml
+            summary.md
+            .difftest/outputs/
+
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Difftest Results
+          path: report.xml
+          reporter: java-junit
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' && always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: summary.md

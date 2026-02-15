@@ -39,7 +39,9 @@ class ClipScoreMetric:
         scores = torch.diag(outputs.logits_per_image) / 100.0
         return [max(0.0, min(1.0, s.item())) for s in scores]
 
-    def compute_from_path(self, image_path: str, prompt: str) -> float:
+    def compute_from_path(self, image_path: str, prompt: str | None = None, reference_path: str | None = None) -> float:
         """Compute CLIP score from an image file path."""
+        if prompt is None:
+            raise ValueError("ClipScoreMetric requires a prompt")
         image = Image.open(image_path).convert("RGB")
         return self.compute(image, prompt)
