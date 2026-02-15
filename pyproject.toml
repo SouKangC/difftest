@@ -26,10 +26,19 @@ fid = [
     "scipy>=1.10",
     "torchvision>=0.15",
 ]
+lpips = [
+    "lpips>=0.1.4",
+    "torchvision>=0.15",
+]
+dreamsim = [
+    "dreamsim>=0.1",
+]
 all-metrics = [
     "image-reward>=1.0",
     "scipy>=1.10",
     "torchvision>=0.15",
+    "lpips>=0.1.4",
+    "dreamsim>=0.1",
 ]
 comfyui = [
     "requests>=2.28",

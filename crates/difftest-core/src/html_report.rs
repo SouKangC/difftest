@@ -108,7 +108,7 @@ fn write_test_section(html: &mut String, test_result: &crate::runner::TestResult
     if !test_result.metrics.is_empty() {
         html.push_str(
             r#"  <table>
-    <tr><th>Metric</th><th>Mean</th><th>Min</th><th>Max</th><th>Threshold</th><th>Status</th></tr>
+    <tr><th>Metric</th><th>Mean</th><th>Min</th><th>Max</th><th>95% CI</th><th>Samples</th><th>Threshold</th><th>Status</th></tr>
 "#,
         );
 
@@ -118,13 +118,20 @@ fn write_test_section(html: &mut String, test_result: &crate::runner::TestResult
             } else {
                 r#"<span class="failed">&#10007;</span>"#
             };
+            let ci_str = if let (Some(lo), Some(hi)) = (metric.ci_lower, metric.ci_upper) {
+                format!("[{:.4}, {:.4}]", lo, hi)
+            } else {
+                "\u{2014}".to_string()
+            };
             let _ = write!(
                 html,
-                "    <tr><td>{}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td><td>{}</td></tr>\n",
+                "    <tr><td>{}</td><td>{:.4}</td><td>{:.4}</td><td>{:.4}</td><td>{}</td><td>{}</td><td>{:.4}</td><td>{}</td></tr>\n",
                 html_escape(name),
                 metric.mean,
                 metric.min,
                 metric.max,
+                ci_str,
+                metric.sample_count,
                 metric.threshold,
                 status,
             );

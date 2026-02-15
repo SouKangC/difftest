@@ -51,10 +51,14 @@ impl PyTestRunner {
         prompt: &str,
         seed: u64,
         output_dir: &str,
+        negative_prompt: Option<&str>,
     ) -> PyResult<String> {
         let kwargs = PyDict::new(py);
         if let Some(t) = self.image_timeout {
             kwargs.set_item("timeout", t)?;
+        }
+        if let Some(neg) = negative_prompt {
+            kwargs.set_item("negative_prompt", neg)?;
         }
         let path: String = self
             .generator
@@ -183,6 +187,11 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             .and_then(|v| v.extract())
             .unwrap_or(None);
 
+        let negative_prompt: Option<String> = py_test
+            .getattr("negative_prompt")
+            .and_then(|v| v.extract())
+            .unwrap_or(None);
+
         let metrics = metric_names
             .into_iter()
             .map(|mname| {
@@ -223,6 +232,7 @@ pub fn discover_tests_py(py: Python<'_>, test_dir: &str) -> PyResult<Vec<TestCas
             test_type,
             baseline_dir,
             reference_dir,
+            negative_prompt,
         });
     }
 

@@ -14,7 +14,13 @@ pub fn generate_console_report(result: &SuiteResult) {
         let metrics_summary: Vec<String> = test_result
             .metrics
             .iter()
-            .map(|(name, m)| format!("{}={:.3}", name, m.mean))
+            .map(|(name, m)| {
+                if let (Some(ci_lo), Some(ci_hi)) = (m.ci_lower, m.ci_upper) {
+                    format!("{}={:.3} [{:.3}, {:.3}]", name, m.mean, ci_lo, ci_hi)
+                } else {
+                    format!("{}={:.3}", name, m.mean)
+                }
+            })
             .collect();
 
         println!(

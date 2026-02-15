@@ -66,18 +66,24 @@ pub fn generate_markdown_report(
         for test_result in failed_tests {
             let _ = writeln!(md, "<details>\n<summary><strong>{}</strong></summary>\n", test_result.name);
 
-            md.push_str("| Metric | Mean | Min | Max | Threshold | Status |\n");
-            md.push_str("|--------|------|-----|-----|-----------|--------|\n");
+            md.push_str("| Metric | Mean | Min | Max | 95% CI | Threshold | Status |\n");
+            md.push_str("|--------|------|-----|-----|--------|-----------|--------|\n");
 
             for (name, metric) in &test_result.metrics {
                 let status = if metric.passed { "PASS" } else { "FAIL" };
+                let ci_str = if let (Some(lo), Some(hi)) = (metric.ci_lower, metric.ci_upper) {
+                    format!("[{:.4}, {:.4}]", lo, hi)
+                } else {
+                    "\u{2014}".to_string()
+                };
                 let _ = writeln!(
                     md,
-                    "| {name} | {mean:.4} | {min:.4} | {max:.4} | {threshold:.4} | {status} |",
+                    "| {name} | {mean:.4} | {min:.4} | {max:.4} | {ci} | {threshold:.4} | {status} |",
                     name = name,
                     mean = metric.mean,
                     min = metric.min,
                     max = metric.max,
+                    ci = ci_str,
                     threshold = metric.threshold,
                     status = status,
                 );

@@ -14,6 +14,11 @@ class TestListSuites:
         assert "text" in suites
         assert "composition" in suites
         assert "styles" in suites
+        assert "medical" in suites
+        assert "architecture" in suites
+        assert "food" in suites
+        assert "animals" in suites
+        assert "abstract" in suites
 
     def test_returns_sorted(self):
         suites = list_suites()
@@ -43,6 +48,26 @@ class TestGetSuite:
 
     def test_styles_has_10_prompts(self):
         prompts = get_suite("styles")
+        assert len(prompts) == 10
+
+    def test_medical_has_10_prompts(self):
+        prompts = get_suite("medical")
+        assert len(prompts) == 10
+
+    def test_architecture_has_10_prompts(self):
+        prompts = get_suite("architecture")
+        assert len(prompts) == 10
+
+    def test_food_has_10_prompts(self):
+        prompts = get_suite("food")
+        assert len(prompts) == 10
+
+    def test_animals_has_10_prompts(self):
+        prompts = get_suite("animals")
+        assert len(prompts) == 10
+
+    def test_abstract_has_10_prompts(self):
+        prompts = get_suite("abstract")
         assert len(prompts) == 10
 
     def test_all_prompts_are_strings(self):

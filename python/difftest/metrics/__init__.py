@@ -10,6 +10,9 @@ _METRIC_REGISTRY = {
     "fid": ("difftest.metrics.fid", "FidMetric"),
     "geneval": ("difftest.metrics.geneval", "GenevalMetric"),
     "vlm_judge": ("difftest.metrics.vlm_judge", "VlmJudgeMetric"),
+    "lpips": ("difftest.metrics.lpips_metric", "LpipsMetric"),
+    "pick_score": ("difftest.metrics.pick_score", "PickScoreMetric"),
+    "dreamsim": ("difftest.metrics.dreamsim_metric", "DreamSimMetric"),
 }
 
 METRIC_META = {
@@ -20,6 +23,9 @@ METRIC_META = {
     "fid": {"category": "batch", "direction": "lower_is_better"},
     "geneval": {"category": "per_sample", "direction": "higher_is_better"},
     "vlm_judge": {"category": "per_sample", "direction": "higher_is_better"},
+    "lpips": {"category": "per_sample", "direction": "lower_is_better"},
+    "pick_score": {"category": "per_sample", "direction": "higher_is_better"},
+    "dreamsim": {"category": "per_sample", "direction": "lower_is_better"},
 }
 
 
@@ -31,6 +37,9 @@ _METRIC_EXTRAS = {
     "fid": ("torch", "fid"),
     "geneval": ("torch", "geneval"),
     "vlm_judge": (None, None),
+    "lpips": ("lpips", "lpips"),
+    "pick_score": (None, None),
+    "dreamsim": ("dreamsim", "dreamsim"),
 }
 
 

@@ -1,0 +1,16 @@
+{
+  "name": "architecture",
+  "description": "Buildings, spaces, and architectural design prompts",
+  "prompts": [
+    "a modern glass skyscraper reflecting clouds against a blue sky",
+    "a Gothic cathedral with flying buttresses and stained glass windows",
+    "a bright modern kitchen interior with marble countertops and pendant lights",
+    "a 3D rendered floor plan of a two-bedroom apartment",
+    "a suspension bridge spanning a river at golden hour",
+    "a traditional Japanese temple surrounded by cherry blossom trees",
+    "a minimalist concrete house with large floor-to-ceiling windows",
+    "an aerial view of a city block with mixed-use buildings",
+    "a cozy library interior with floor-to-ceiling bookshelves and a reading nook",
+    "a futuristic eco-friendly building covered in vertical gardens"
+  ]
+}

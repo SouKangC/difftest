@@ -224,6 +224,43 @@ class TestDecorators:
         # No placeholders in general suite, so count stays at 10
         assert len(tc.prompts) == 10
 
+    def test_negative_prompt_stored_in_test_case(self):
+        @difftest.test(
+            prompts=["a cat"],
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.25},
+            negative_prompt="ugly, blurry, bad quality",
+        )
+        def test_neg(model):
+            pass
+
+        tc = get_registry()["test_neg"]
+        assert tc.negative_prompt == "ugly, blurry, bad quality"
+
+    def test_negative_prompt_default_none(self):
+        @difftest.test(
+            prompts=["a dog"],
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_no_neg(model):
+            pass
+
+        tc = get_registry()["test_no_neg"]
+        assert tc.negative_prompt is None
+
+    def test_negative_prompt_visual_regression(self):
+        @difftest.visual_regression(
+            prompts=["a red cube"],
+            seeds=[42],
+            negative_prompt="distorted, artifacts",
+        )
+        def test_vr_neg(model):
+            pass
+
+        tc = get_registry()["test_vr_neg"]
+        assert tc.negative_prompt == "distorted, artifacts"
+
     def test_visual_regression_with_suite(self):
         @difftest.visual_regression(
             suite="hands",

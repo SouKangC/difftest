@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -151,6 +152,61 @@ impl Storage {
             Some(row) => Ok(Some(row?)),
             None => Ok(None),
         }
+    }
+
+    pub fn get_run(&self, run_id: i64) -> error::Result<Option<LatestRun>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, model_name, device, timestamp, total_passed, total_failed, duration_ms
+             FROM runs WHERE id = ?1",
+        )?;
+
+        let mut rows = stmt.query_map(params![run_id], |row| {
+            Ok(LatestRun {
+                id: row.get(0)?,
+                model_name: row.get(1)?,
+                device: row.get(2)?,
+                timestamp: row.get(3)?,
+                total_passed: row.get(4)?,
+                total_failed: row.get(5)?,
+                duration_ms: row.get(6)?,
+            })
+        })?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_run_samples(
+        &self,
+        run_id: i64,
+    ) -> error::Result<HashMap<(String, String), Vec<f64>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT tr.test_name, ms.metric_name, ms.value
+             FROM metric_samples ms
+             JOIN test_results tr ON ms.test_result_id = tr.id
+             WHERE tr.run_id = ?1
+             ORDER BY tr.test_name, ms.metric_name",
+        )?;
+
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })?;
+
+        let mut result: HashMap<(String, String), Vec<f64>> = HashMap::new();
+        for row in rows {
+            let (test_name, metric_name, value) = row?;
+            result
+                .entry((test_name, metric_name))
+                .or_default()
+                .push(value);
+        }
+        Ok(result)
     }
 
     pub fn get_history(

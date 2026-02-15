@@ -177,6 +177,7 @@ pub fn execute(args: BaselineArgs, cfg: &DifftestConfig) -> difftest_core::error
                         prompt,
                         seed,
                         suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                        test_case.negative_prompt.as_deref(),
                     )?;
                     images.push((image_path, prompt.clone(), seed));
                 }

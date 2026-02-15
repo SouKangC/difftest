@@ -52,13 +52,19 @@ pub fn generate_junit_xml(
                         threshold = metric.threshold,
                     );
                 }
+                let ci_str = if let (Some(lo), Some(hi)) = (metric.ci_lower, metric.ci_upper) {
+                    format!(" ci=[{:.4}, {:.4}]", lo, hi)
+                } else {
+                    String::new()
+                };
                 let _ = write!(
                     detail,
-                    "{name}: mean={mean:.4} min={min:.4} max={max:.4} threshold={threshold:.4} {status}\n",
+                    "{name}: mean={mean:.4} min={min:.4} max={max:.4}{ci} threshold={threshold:.4} {status}\n",
                     name = name,
                     mean = metric.mean,
                     min = metric.min,
                     max = metric.max,
+                    ci = ci_str,
                     threshold = metric.threshold,
                     status = if metric.passed { "PASSED" } else { "FAILED" },
                 );

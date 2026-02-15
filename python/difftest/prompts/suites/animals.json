@@ -1,0 +1,16 @@
+{
+  "name": "animals",
+  "description": "Wildlife and pet prompts covering birds, sea life, and domestic animals",
+  "prompts": [
+    "a bald eagle soaring in flight against a dramatic mountain backdrop",
+    "a vibrant coral reef with tropical fish and sea anemones",
+    "an orange tabby cat sleeping on a sunlit bookshelf",
+    "a wolf pack traversing through a snowy forest at dusk",
+    "a macro photograph of a monarch butterfly on a purple wildflower",
+    "a golden retriever puppy playing in autumn leaves",
+    "a hummingbird hovering near a red hibiscus flower",
+    "a sea turtle gliding through crystal clear ocean water",
+    "a red fox sitting in a meadow with morning dew on the grass",
+    "a pair of penguins standing on an ice floe in Antarctica"
+  ]
+}

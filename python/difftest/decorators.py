@@ -18,6 +18,7 @@ class TestCase:
     test_type: str = "quality"
     baseline_dir: str | None = None
     reference_dir: str | None = None
+    negative_prompt: str | None = None
 
 
 def test(
@@ -28,6 +29,7 @@ def test(
     reference_dir: str | None = None,
     suite: str | None = None,
     variables: dict[str, list[str]] | None = None,
+    negative_prompt: str | None = None,
 ) -> Callable:
     """Register a quality test.
 
@@ -54,6 +56,7 @@ def test(
             thresholds=threshold,
             test_type="quality",
             reference_dir=reference_dir,
+            negative_prompt=negative_prompt,
         )
         return func
 
@@ -67,6 +70,7 @@ def visual_regression(
     ssim_threshold: float = 0.85,
     suite: str | None = None,
     variables: dict[str, list[str]] | None = None,
+    negative_prompt: str | None = None,
 ) -> Callable:
     """Register a visual regression test.
 
@@ -90,6 +94,7 @@ def visual_regression(
             thresholds={"ssim": ssim_threshold},
             test_type="visual_regression",
             baseline_dir=baseline_dir,
+            negative_prompt=negative_prompt,
         )
         return func
 

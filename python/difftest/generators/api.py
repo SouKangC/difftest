@@ -19,7 +19,7 @@ class _FalAdapter:
         self.model_id = model_id
         self.base_url = f"https://queue.fal.run/{model_id}"
 
-    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None, **kwargs) -> Image.Image:
         import requests
 
         headers = {
@@ -27,6 +27,8 @@ class _FalAdapter:
             "Content-Type": "application/json",
         }
         payload = {"prompt": prompt, "seed": seed}
+        if kwargs.get("negative_prompt"):
+            payload["negative_prompt"] = kwargs["negative_prompt"]
         resp = requests.post(self.base_url, json=payload, headers=headers)
         resp.raise_for_status()
         result = resp.json()
@@ -93,16 +95,19 @@ class _ReplicateAdapter:
         self.model_id = model_id
         self.base_url = "https://api.replicate.com/v1/predictions"
 
-    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None, **kwargs) -> Image.Image:
         import requests
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        input_data = {"prompt": prompt, "seed": seed}
+        if kwargs.get("negative_prompt"):
+            input_data["negative_prompt"] = kwargs["negative_prompt"]
         payload = {
             "version": self.model_id,
-            "input": {"prompt": prompt, "seed": seed},
+            "input": input_data,
         }
         resp = requests.post(self.base_url, json=payload, headers=headers)
         resp.raise_for_status()
@@ -166,7 +171,7 @@ class _CustomAdapter:
         self.api_key = api_key
         self.endpoint = endpoint
 
-    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None, **kwargs) -> Image.Image:
         import requests
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -174,6 +179,8 @@ class _CustomAdapter:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         payload = {"prompt": prompt, "seed": seed}
+        if kwargs.get("negative_prompt"):
+            payload["negative_prompt"] = kwargs["negative_prompt"]
         resp = requests.post(self.endpoint, json=payload, headers=headers)
         resp.raise_for_status()
 
@@ -263,7 +270,7 @@ class APIGenerator(BaseGenerator):
 
     def _generate_impl(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
         """Internal: generate an image via the configured API provider."""
-        return self._adapter.generate(prompt, seed, timeout=timeout)
+        return self._adapter.generate(prompt, seed, timeout=timeout, **kwargs)
 
     def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
         """Generate an image, with optional retry."""
@@ -271,8 +278,8 @@ class APIGenerator(BaseGenerator):
             from difftest.generators.retry import retry_call
             return retry_call(
                 self._generate_impl,
-                kwargs={"prompt": prompt, "seed": seed, "timeout": timeout},
+                kwargs={"prompt": prompt, "seed": seed, "timeout": timeout, **kwargs},
                 max_retries=self._max_retries,
                 base_delay=self._base_delay,
             )
-        return self._generate_impl(prompt, seed, timeout=timeout)
+        return self._generate_impl(prompt, seed, timeout=timeout, **kwargs)

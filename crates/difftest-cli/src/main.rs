@@ -2,6 +2,7 @@ mod agent;
 mod baseline;
 mod bridge;
 mod cache;
+mod compare;
 mod config;
 mod run;
 
@@ -23,6 +24,8 @@ enum Commands {
     Baseline(baseline::BaselineArgs),
     /// LLM-powered test design, diagnosis, and regression tracking
     Agent(agent::AgentArgs),
+    /// Compare two runs with statistical tests (Welch's t-test, Cohen's d)
+    Compare(compare::CompareArgs),
 }
 
 fn main() {
@@ -33,6 +36,7 @@ fn main() {
         Commands::Run(args) => run::execute(args, &cfg),
         Commands::Baseline(args) => baseline::execute(args, &cfg),
         Commands::Agent(args) => agent::execute(args),
+        Commands::Compare(args) => compare::execute(args),
     };
 
     if let Err(e) = result {

@@ -26,6 +26,7 @@ pub struct DifftestConfig {
     pub filter: Option<String>,
     pub test: Option<Vec<String>>,
     pub retry: Option<RetryConfig>,
+    pub min_samples: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]

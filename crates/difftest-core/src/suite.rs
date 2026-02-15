@@ -18,6 +18,8 @@ pub struct TestCase {
     pub test_type: TestType,
     pub baseline_dir: Option<String>,
     pub reference_dir: Option<String>,
+    #[serde(default)]
+    pub negative_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

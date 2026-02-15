@@ -90,6 +90,10 @@ pub struct RunArgs {
     /// Reuse cached images when inputs haven't changed
     #[arg(long)]
     incremental: bool,
+
+    /// Minimum number of samples required for a metric to pass
+    #[arg(long)]
+    min_samples: Option<usize>,
 }
 
 pub fn execute(args: RunArgs, cfg: &DifftestConfig) -> difftest_core::error::Result<()> {
@@ -112,6 +116,7 @@ pub fn execute(args: RunArgs, cfg: &DifftestConfig) -> difftest_core::error::Res
     let timeout = args.timeout.or(cfg.timeout);
     let image_timeout = args.image_timeout.or(cfg.image_timeout);
     let incremental = config::resolve_bool(args.incremental, &cfg.incremental);
+    let min_samples = args.min_samples.or(cfg.min_samples);
     let filter = config::resolve_option(&args.filter, &cfg.filter);
     let mut test_names = args.test_names.clone();
     if test_names.is_empty() {
@@ -229,10 +234,10 @@ pub fn execute(args: RunArgs, cfg: &DifftestConfig) -> difftest_core::error::Res
 
             let test_result = match test_case.test_type {
                 TestType::VisualRegression => {
-                    run_visual_regression(py, &runner, test_case, &suite, &mut cache)?
+                    run_visual_regression(py, &runner, test_case, &suite, &mut cache, min_samples)?
                 }
                 TestType::Quality => {
-                    run_quality_test(py, &runner, test_case, &suite, &mut cache)?
+                    run_quality_test(py, &runner, test_case, &suite, &mut cache, min_samples)?
                 }
             };
 
@@ -342,6 +347,7 @@ fn run_quality_test(
     test_case: &difftest_core::suite::TestCase,
     suite: &difftest_core::suite::TestSuite,
     cache: &mut Option<crate::cache::CacheManifest>,
+    min_samples: Option<usize>,
 ) -> PyResult<TestResult> {
     let mut all_images = Vec::new();
     let mut metric_scores: HashMap<String, Vec<f64>> = HashMap::new();
@@ -380,6 +386,7 @@ fn run_quality_test(
                             prompt,
                             seed,
                             suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                            test_case.negative_prompt.as_deref(),
                         )?;
                         manifest.insert(
                             key,
@@ -400,6 +407,7 @@ fn run_quality_test(
                         prompt,
                         seed,
                         suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                        test_case.negative_prompt.as_deref(),
                     )?;
                     manifest.insert(
                         key,
@@ -420,6 +428,7 @@ fn run_quality_test(
                     prompt,
                     seed,
                     suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                    test_case.negative_prompt.as_deref(),
                 )?
             };
 
@@ -486,10 +495,13 @@ fn run_quality_test(
             .get(&metric_spec.name)
             .copied()
             .unwrap_or(0.0);
-        metric_results.insert(
-            metric_spec.name.clone(),
-            MetricResult::from_scores_with_direction(scores, threshold, &metric_spec.direction),
-        );
+        let mut mr = MetricResult::from_scores_with_direction(scores, threshold, &metric_spec.direction);
+        if let Some(min) = min_samples {
+            if mr.sample_count < min {
+                mr.passed = false;
+            }
+        }
+        metric_results.insert(metric_spec.name.clone(), mr);
     }
 
     Ok(TestResult::from_metrics(
@@ -506,6 +518,7 @@ fn run_visual_regression(
     test_case: &difftest_core::suite::TestCase,
     suite: &difftest_core::suite::TestSuite,
     cache: &mut Option<crate::cache::CacheManifest>,
+    min_samples: Option<usize>,
 ) -> PyResult<TestResult> {
     let baseline_dir = test_case
         .baseline_dir
@@ -535,6 +548,7 @@ fn run_visual_regression(
                             prompt,
                             seed,
                             suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                            test_case.negative_prompt.as_deref(),
                         )?;
                         manifest.insert(
                             key,
@@ -555,6 +569,7 @@ fn run_visual_regression(
                         prompt,
                         seed,
                         suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                        test_case.negative_prompt.as_deref(),
                     )?;
                     manifest.insert(
                         key,
@@ -575,6 +590,7 @@ fn run_visual_regression(
                     prompt,
                     seed,
                     suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                    test_case.negative_prompt.as_deref(),
                 )?
             };
 
@@ -617,6 +633,11 @@ fn run_visual_regression(
     let mut metric_result = MetricResult::from_scores(ssim_scores, threshold);
     if missing_baselines {
         metric_result.passed = false;
+    }
+    if let Some(min) = min_samples {
+        if metric_result.sample_count < min {
+            metric_result.passed = false;
+        }
     }
 
     let mut metric_results = HashMap::new();

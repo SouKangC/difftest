@@ -6,3 +6,4 @@ pub mod storage;
 pub mod html_report;
 pub mod junit;
 pub mod markdown;
+pub mod compare;

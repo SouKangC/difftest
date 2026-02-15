@@ -45,20 +45,24 @@ class ComfyUIGenerator(BaseGenerator):
             self.workflow_template = json.load(f)
 
     def _inject_prompt(
-        self, workflow: dict, prompt: str, seed: int
+        self, workflow: dict, prompt: str, seed: int,
+        negative_prompt: str | None = None,
     ) -> dict:
-        """Walk workflow nodes and inject prompt + seed."""
+        """Walk workflow nodes and inject prompt + seed + optional negative prompt."""
         for node_id, node in workflow.items():
             class_type = node.get("class_type", "")
             inputs = node.get("inputs", {})
 
             if class_type == "CLIPTextEncode":
-                # Only inject into the positive prompt (skip negative)
                 text = inputs.get("text", "")
-                if text and not any(
+                is_negative = text and any(
                     neg in text.lower()
                     for neg in ["ugly", "bad", "worst", "negative"]
-                ):
+                )
+                if is_negative:
+                    if negative_prompt is not None:
+                        inputs["text"] = negative_prompt
+                elif text:
                     inputs["text"] = prompt
 
             if class_type == "KSampler":
@@ -114,8 +118,9 @@ class ComfyUIGenerator(BaseGenerator):
         """Internal: generate a single image via ComfyUI workflow execution."""
         import copy
 
+        negative_prompt = kwargs.pop("negative_prompt", None)
         workflow = copy.deepcopy(self.workflow_template)
-        workflow = self._inject_prompt(workflow, prompt, seed)
+        workflow = self._inject_prompt(workflow, prompt, seed, negative_prompt=negative_prompt)
 
         prompt_id = self._queue_prompt(workflow)
         poll_timeout = float(timeout) if timeout is not None else 300.0

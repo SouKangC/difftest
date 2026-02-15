@@ -1,0 +1,16 @@
+{
+  "name": "medical",
+  "description": "Medical imaging prompts covering X-rays, scans, and clinical scenarios",
+  "prompts": [
+    "a chest X-ray showing healthy lungs with clear airways",
+    "an MRI scan of a human brain with detailed cross-section",
+    "a detailed anatomical diagram of the human heart with labeled chambers",
+    "a set of surgical tools laid out on a sterile tray in an operating room",
+    "a modern hospital room with medical equipment and a patient bed",
+    "a close-up of a stethoscope resting on a medical chart",
+    "a dental X-ray showing a full set of teeth and jawbone",
+    "a microscope view of red and white blood cells",
+    "an ultrasound image of a developing fetus at 20 weeks",
+    "a medical illustration of the human skeletal system from the front"
+  ]
+}
