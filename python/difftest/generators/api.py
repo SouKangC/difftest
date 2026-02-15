@@ -19,7 +19,7 @@ class _FalAdapter:
         self.model_id = model_id
         self.base_url = f"https://queue.fal.run/{model_id}"
 
-    def generate(self, prompt: str, seed: int) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
         import requests
 
         headers = {
@@ -31,9 +31,11 @@ class _FalAdapter:
         resp.raise_for_status()
         result = resp.json()
 
+        poll_timeout = timeout if timeout is not None else 300
+
         # fal returns a request_id for async processing
         if "request_id" in result:
-            return self._poll_result(result["request_id"], headers)
+            return self._poll_result(result["request_id"], headers, timeout=poll_timeout)
 
         # Or direct result with image URL
         return self._download_from_result(result)
@@ -91,7 +93,7 @@ class _ReplicateAdapter:
         self.model_id = model_id
         self.base_url = "https://api.replicate.com/v1/predictions"
 
-    def generate(self, prompt: str, seed: int) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
         import requests
 
         headers = {
@@ -105,7 +107,8 @@ class _ReplicateAdapter:
         resp = requests.post(self.base_url, json=payload, headers=headers)
         resp.raise_for_status()
         prediction = resp.json()
-        return self._poll_result(prediction, headers)
+        poll_timeout = timeout if timeout is not None else 300
+        return self._poll_result(prediction, headers, timeout=poll_timeout)
 
     def _poll_result(
         self, prediction: dict, headers: dict, timeout: float = 300
@@ -163,7 +166,7 @@ class _CustomAdapter:
         self.api_key = api_key
         self.endpoint = endpoint
 
-    def generate(self, prompt: str, seed: int) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: float | None = None) -> Image.Image:
         import requests
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -253,6 +256,6 @@ class APIGenerator(BaseGenerator):
                 )
             self._adapter = _ReplicateAdapter(resolved_key, model_id)
 
-    def generate(self, prompt: str, seed: int, **kwargs) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
         """Generate an image via the configured API provider."""
-        return self._adapter.generate(prompt, seed)
+        return self._adapter.generate(prompt, seed, timeout=timeout)

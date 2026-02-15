@@ -13,21 +13,21 @@ class BaseGenerator:
     All generator backends must subclass this and implement `generate()`.
     """
 
-    def generate(self, prompt: str, seed: int, **kwargs) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
         """Generate a single image from a prompt and seed."""
         raise NotImplementedError
 
     def generate_batch(
-        self, prompts: list[str], seeds: list[int], **kwargs
+        self, prompts: list[str], seeds: list[int], *, timeout: int | None = None, **kwargs
     ) -> list[Image.Image]:
         """Generate images sequentially. Override for batch-optimized backends."""
-        return [self.generate(p, s, **kwargs) for p, s in zip(prompts, seeds)]
+        return [self.generate(p, s, timeout=timeout, **kwargs) for p, s in zip(prompts, seeds)]
 
     def generate_and_save(
-        self, prompt: str, seed: int, output_dir: str, **kwargs
+        self, prompt: str, seed: int, output_dir: str, *, timeout: int | None = None, **kwargs
     ) -> str:
         """Generate an image and save it to disk. Returns the file path."""
-        image = self.generate(prompt, seed, **kwargs)
+        image = self.generate(prompt, seed, timeout=timeout, **kwargs)
         os.makedirs(output_dir, exist_ok=True)
         safe_prompt = prompt[:50].replace(" ", "_").replace("/", "_")
         filename = f"{safe_prompt}_seed{seed}.png"

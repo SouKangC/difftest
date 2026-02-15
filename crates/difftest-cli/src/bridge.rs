@@ -13,6 +13,7 @@ use difftest_core::suite::{
 pub struct PyTestRunner {
     generator: Py<PyAny>,
     metrics: HashMap<String, Py<PyAny>>,
+    image_timeout: Option<u64>,
 }
 
 impl PyTestRunner {
@@ -39,7 +40,9 @@ impl PyTestRunner {
             metrics.insert(name.clone(), metric_instance);
         }
 
-        Ok(Self { generator, metrics })
+        let image_timeout = generator_config.get("image_timeout").and_then(|v| v.parse().ok());
+
+        Ok(Self { generator, metrics, image_timeout })
     }
 
     pub fn generate_image(
@@ -49,9 +52,13 @@ impl PyTestRunner {
         seed: u64,
         output_dir: &str,
     ) -> PyResult<String> {
+        let kwargs = PyDict::new(py);
+        if let Some(t) = self.image_timeout {
+            kwargs.set_item("timeout", t)?;
+        }
         let path: String = self
             .generator
-            .call_method1(py, "generate_and_save", (prompt, seed, output_dir))?
+            .call_method(py, "generate_and_save", (prompt, seed, output_dir), Some(&kwargs))?
             .extract(py)?;
         Ok(path)
     }

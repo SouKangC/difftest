@@ -106,7 +106,7 @@ class ComfyUIGenerator(BaseGenerator):
         resp.raise_for_status()
         return Image.open(io.BytesIO(resp.content))
 
-    def generate(self, prompt: str, seed: int, **kwargs) -> Image.Image:
+    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
         """Generate a single image via ComfyUI workflow execution."""
         import copy
 
@@ -114,7 +114,8 @@ class ComfyUIGenerator(BaseGenerator):
         workflow = self._inject_prompt(workflow, prompt, seed)
 
         prompt_id = self._queue_prompt(workflow)
-        result = self._poll_completion(prompt_id)
+        poll_timeout = float(timeout) if timeout is not None else 300.0
+        result = self._poll_completion(prompt_id, timeout=poll_timeout)
 
         # Find the output image in the result
         outputs = result.get("outputs", {})
