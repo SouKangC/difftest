@@ -169,3 +169,69 @@ class TestDecorators:
 
         tc = get_registry()["test_no_ref"]
         assert tc.reference_dir is None
+
+    def test_suite_param(self):
+        @difftest.test(
+            suite="hands",
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_suite(model):
+            pass
+
+        tc = get_registry()["test_suite"]
+        assert len(tc.prompts) == 10
+
+    def test_suite_plus_prompts(self):
+        @difftest.test(
+            suite="hands",
+            prompts=["extra prompt"],
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_suite_extra(model):
+            pass
+
+        tc = get_registry()["test_suite_extra"]
+        assert len(tc.prompts) == 11
+        assert tc.prompts[-1] == "extra prompt"
+
+    def test_variables_expansion(self):
+        @difftest.test(
+            prompts=["a {subject} in {style} style"],
+            variables={"subject": ["cat", "dog"], "style": ["watercolor", "oil"]},
+            metrics=["clip_score"],
+            threshold={"clip_score": 0.2},
+        )
+        def test_vars(model):
+            pass
+
+        tc = get_registry()["test_vars"]
+        assert len(tc.prompts) == 4
+        assert "a cat in watercolor style" in tc.prompts
+        assert "a dog in oil style" in tc.prompts
+
+    def test_suite_with_variables(self):
+        @difftest.visual_regression(
+            suite="general",
+            variables={"nonexistent": ["a"]},  # won't match any placeholders
+            seeds=[42],
+        )
+        def test_suite_vars(model):
+            pass
+
+        tc = get_registry()["test_suite_vars"]
+        # No placeholders in general suite, so count stays at 10
+        assert len(tc.prompts) == 10
+
+    def test_visual_regression_with_suite(self):
+        @difftest.visual_regression(
+            suite="hands",
+            seeds=[42, 123],
+        )
+        def test_vr_suite(model):
+            pass
+
+        tc = get_registry()["test_vr_suite"]
+        assert len(tc.prompts) == 10
+        assert tc.test_type == "visual_regression"
