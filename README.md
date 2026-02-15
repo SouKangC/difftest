@@ -47,7 +47,7 @@ pip install -e ".[dev]"
 cargo build
 ```
 
-For additional metrics:
+For additional metrics and generator backends:
 
 ```bash
 # ImageReward metric
@@ -58,6 +58,12 @@ pip install -e ".[fid]"
 
 # All metrics
 pip install -e ".[all-metrics]"
+
+# ComfyUI generator backend
+pip install -e ".[comfyui]"
+
+# API generator backend (fal.ai, Replicate, custom)
+pip install -e ".[api]"
 ```
 
 The CLI binary is at `target/debug/difftest` after building. The Python package is available directly from the `python/` directory.
@@ -136,13 +142,15 @@ def test_generation_quality(model):
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `prompts` | `list[str]` | Prompts to generate images from |
+| `prompts` | `list[str] \| None` | Prompts to generate images from |
 | `metrics` | `list[str]` | Metrics to compute (see Available Metrics) |
 | `threshold` | `dict[str, float]` | Minimum mean score to pass (or maximum for FID) |
 | `seeds` | `list[int]` | RNG seeds for reproducibility. Default: `[42, 123, 456]` |
 | `reference_dir` | `str \| None` | Directory of reference images (required for FID) |
+| `suite` | `str \| None` | Built-in prompt suite name (see Prompt Suites) |
+| `variables` | `dict[str, list[str]] \| None` | Variables for template expansion (see Prompt Templating) |
 
-Each test generates `len(prompts) * len(seeds)` images. Metric scores are averaged across all images — the test passes if the mean meets the threshold.
+You must provide at least `prompts` or `suite` (or both). Each test generates `len(prompts) * len(seeds)` images. Metric scores are averaged across all images — the test passes if the mean meets the threshold.
 
 ### Visual regression tests
 
@@ -163,10 +171,12 @@ def test_deterministic(model):
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `prompts` | `list[str]` | Prompts to generate images from |
-| `seeds` | `list[int]` | RNG seeds (required) |
+| `prompts` | `list[str] \| None` | Prompts to generate images from |
+| `seeds` | `list[int]` | RNG seeds. Default: `[42, 123, 456]` |
 | `baseline_dir` | `str` | Directory for baseline images. Default: `"baselines/"` |
 | `ssim_threshold` | `float` | Minimum SSIM score to pass. Default: `0.85` |
+| `suite` | `str \| None` | Built-in prompt suite name (see Prompt Suites) |
+| `variables` | `dict[str, list[str]] \| None` | Variables for template expansion |
 
 **Workflow:**
 
@@ -198,6 +208,120 @@ def hand_quality(image_path: str) -> float:
 def test_hands(model):
     pass
 ```
+
+## Prompt Suites
+
+difftest ships with curated prompt suites that test common failure modes. Use `suite=` instead of (or in addition to) `prompts=`:
+
+```python
+# Use a built-in suite
+@difftest.test(
+    suite="hands",
+    metrics=["clip_score"],
+    threshold={"clip_score": 0.22}
+)
+def test_hand_quality(model):
+    pass
+
+# Combine suite with custom prompts
+@difftest.test(
+    suite="general",
+    prompts=["my custom prompt"],
+    metrics=["clip_score"],
+    threshold={"clip_score": 0.25}
+)
+def test_combined(model):
+    pass
+```
+
+**Available suites** (10 prompts each):
+
+| Suite | Description |
+|-------|-------------|
+| `general` | General-purpose prompts (cats, cars, food, landscapes) |
+| `portraits` | Portrait and face generation (lighting, angles, expressions) |
+| `hands` | Hand generation (common failure case for diffusion models) |
+| `text` | Text rendering (signs, labels, handwriting) |
+| `composition` | Spatial composition (object placement, relationships) |
+| `styles` | Artistic styles (impressionism, watercolor, pixel art) |
+
+List and inspect suites programmatically:
+
+```python
+import difftest
+difftest.list_suites()       # ['composition', 'general', 'hands', ...]
+difftest.get_suite("hands")  # ['a close-up of two hands shaking...', ...]
+```
+
+## Prompt Templating
+
+Use `{variable}` placeholders with `variables=` to generate cartesian product test matrices:
+
+```python
+@difftest.test(
+    prompts=["a {subject} in {style} style"],
+    variables={"subject": ["cat", "dog"], "style": ["watercolor", "oil"]},
+    metrics=["clip_score"],
+    threshold={"clip_score": 0.22},
+)
+def test_style_matrix(model):
+    pass  # Expands to 4 prompts: cat/watercolor, cat/oil, dog/watercolor, dog/oil
+```
+
+Templates expand at decorator registration time. Rust only sees flat prompt lists. Prompts without `{placeholders}` pass through unchanged.
+
+## Generator Backends
+
+difftest supports multiple image generation backends. Use `--generator` to select:
+
+### Diffusers (default)
+
+```bash
+difftest run --model stabilityai/sdxl-turbo --device cuda:0
+```
+
+### ComfyUI
+
+Execute ComfyUI workflows via the HTTP API. Prompt and seed are injected into `CLIPTextEncode` and `KSampler` nodes automatically.
+
+```bash
+pip install difftest[comfyui]
+
+difftest run \
+  --generator comfyui \
+  --comfyui-url http://127.0.0.1:8188 \
+  --workflow workflow.json
+```
+
+### API (fal.ai, Replicate, custom)
+
+Generate images via cloud API providers:
+
+```bash
+pip install difftest[api]
+
+# fal.ai
+difftest run \
+  --generator api \
+  --provider fal \
+  --api-key $FAL_KEY \
+  --model fal-ai/flux/dev
+
+# Replicate
+difftest run \
+  --generator api \
+  --provider replicate \
+  --api-key $REPLICATE_API_TOKEN \
+  --model <version-id>
+
+# Custom endpoint
+difftest run \
+  --generator api \
+  --provider custom \
+  --endpoint https://my-api.com/generate
+```
+
+The API key can also be set via `DIFFTEST_API_KEY` environment variable.
 
 ## Available Metrics
 
@@ -297,18 +421,24 @@ Compositional evaluation via CLIP sub-prompt decomposition. Splits complex promp
 Run the test suite against a model.
 
 ```
-difftest run --model <MODEL> [OPTIONS]
+difftest run [OPTIONS]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--model` | *required* | HuggingFace model ID or local path |
+| `--model` | `""` | HuggingFace model ID or local path (required for diffusers) |
 | `--device` | `cpu` | Device: `cuda:0`, `mps`, `cpu` |
 | `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
 | `--output` | — | Path to write JSON results |
 | `--html` | — | Path to write HTML report with side-by-side images |
 | `--junit` | — | Path to write JUnit XML report (for CI systems) |
 | `--markdown` | — | Path to write Markdown summary (for PR comments) |
+| `--generator` | `diffusers` | Generator backend: `diffusers`, `comfyui`, `api` |
+| `--comfyui-url` | — | ComfyUI server URL (for `comfyui` generator) |
+| `--workflow` | — | ComfyUI workflow JSON path (for `comfyui` generator) |
+| `--provider` | — | API provider: `fal`, `replicate`, `custom` |
+| `--api-key` | — | API key (falls back to `DIFFTEST_API_KEY` env var) |
+| `--endpoint` | — | Custom API endpoint URL |
 
 **Exit codes:** `0` = all tests passed, `1` = one or more failed, `2` = error
 
@@ -328,10 +458,16 @@ difftest baseline update --model <MODEL> [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--model` | *required* | HuggingFace model ID or local path |
+| `--model` | `""` | HuggingFace model ID or local path (required for diffusers) |
 | `--device` | `cpu` | Device: `cuda:0`, `mps`, `cpu` |
 | `--test-dir` | `tests/` | Directory to scan for `test_*.py` files |
 | `--baseline-dir` | `baselines/` | Directory to store baseline images |
+| `--generator` | `diffusers` | Generator backend: `diffusers`, `comfyui`, `api` |
+| `--comfyui-url` | — | ComfyUI server URL |
+| `--workflow` | — | ComfyUI workflow JSON path |
+| `--provider` | — | API provider: `fal`, `replicate`, `custom` |
+| `--api-key` | — | API key |
+| `--endpoint` | — | Custom API endpoint URL |
 
 ## CI Integration
 
@@ -380,10 +516,15 @@ Rust (orchestration + CLI)              Python (ML inference)
 │  ├── suite.rs        │                │  │   ├── aesthetic    │
 │  ├── runner.rs       │                │  │   ├── fid          │
 │  ├── report.rs       │                │  │   └── geneval      │
-│  ├── storage.rs      │                │  └── generators/     │
-│  ├── html_report.rs  │                │      └── diffusers   │
-│  ├── junit.rs        │                └──────────────────────┘
-│  └── markdown.rs     │
+│  ├── storage.rs      │                │  ├── generators/      │
+│  ├── html_report.rs  │                │  │   ├── diffusers    │
+│  ├── junit.rs        │                │  │   ├── comfyui      │
+│  ├── markdown.rs     │                │  │   └── api          │
+│                      │                │  └── prompts/         │
+│                      │                │      ├── registry     │
+│                      │                │      ├── templating   │
+│                      │                │      └── suites/      │
+│                      │                └──────────────────────┘
 └──────────────────────┘
 ```
 
@@ -431,7 +572,14 @@ difftest/
 │   ├── discovery.py            # test_*.py file scanning
 │   ├── baselines.py            # Baseline save/load/exists
 │   ├── generators/
-│   │   └── diffusers.py        # HuggingFace Diffusers backend
+│   │   ├── base.py             # BaseGenerator protocol
+│   │   ├── diffusers.py        # HuggingFace Diffusers backend
+│   │   ├── comfyui.py          # ComfyUI workflow execution
+│   │   └── api.py              # Cloud API (fal, Replicate, custom)
+│   ├── prompts/
+│   │   ├── registry.py         # Suite loading + get_prompts()
+│   │   ├── templating.py       # {var} expansion with cartesian product
+│   │   └── suites/             # JSON prompt suite files
 │   └── metrics/
 │       ├── __init__.py         # Registry + create_metric() factory
 │       ├── clip_score.py       # CLIP ViT-L/14 similarity
@@ -451,7 +599,12 @@ difftest/
 │   ├── test_image_reward.py
 │   ├── test_aesthetic_score.py
 │   ├── test_fid.py
-│   └── test_geneval.py
+│   ├── test_geneval.py
+│   ├── test_generator_registry.py
+│   ├── test_prompt_suites.py
+│   ├── test_prompt_templating.py
+│   ├── test_comfyui_generator.py
+│   └── test_api_generator.py
 └── examples/
     ├── basic_test.py
     └── github-actions.yml      # CI workflow template
@@ -509,12 +662,16 @@ cargo check
 6. Markdown summary: `--markdown summary.md` (for PR comments)
 7. GitHub Actions example workflow with caching and artifact uploads
 
-### Phase 4: Built-in prompt suites + ComfyUI backend
+### Phase 4: Built-in prompt suites + generator backends &mdash; complete
 
-1. Bundle curated prompt suites (general, portraits, hands, text, composition, styles)
-2. ComfyUI generator backend: execute ComfyUI workflow via API, capture output
-3. API generator backend: send prompts to fal.ai/Replicate/custom endpoints
-4. Prompt templating: `"a {subject} in {style} style"` with variable expansion
+**Goal**: Pluggable generators, curated prompt suites, prompt templating.
+
+1. Generator abstraction: `BaseGenerator` protocol with registry + `create_generator()` factory
+2. Bundle curated prompt suites (general, portraits, hands, text, composition, styles)
+3. Prompt templating: `"a {subject} in {style} style"` with cartesian product expansion
+4. Rust-side generator dispatch via CLI flags (`--generator`, `--comfyui-url`, `--provider`, etc.)
+5. ComfyUI generator backend: workflow injection, HTTP polling, image download
+6. API generator backend: fal.ai, Replicate, and custom endpoint adapters
 
 ### Phase 5: Agent-powered test design + diagnosis
 
