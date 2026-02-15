@@ -821,6 +821,57 @@ tests = design_suite(llm, "SDXL Turbo - fast text-to-image, 1 step inference")
 # Returns: [DesignedTest(name='test_basic_objects', ...), ...]
 ```
 
+### Phase 6: Production Hardening & Developer Experience
+
+**Goal**: Make difftest production-ready with robust configuration, error handling, and performance optimizations.
+
+1. Configuration file support (`difftest.toml` or `[tool.difftest]` in pyproject.toml) for persistent defaults
+2. Test filtering (`--filter`, `--test`) and dry-run mode (`--dry-run`)
+3. Custom error types with actionable messages and install hints for missing optional deps
+4. Timeout handling: global suite timeout (`--timeout`) and per-image generation timeout
+5. Incremental runs (`--incremental`): skip regeneration for identical prompt/seed/model combos, metric caching via SHA256
+6. Retry logic with exponential backoff for API/ComfyUI generators
+
+### Phase 7: Advanced Testing & New Metrics
+
+**Goal**: Expand metric coverage and introduce statistical rigor for model comparison.
+
+1. New metrics: LPIPS (learned perceptual similarity), PickScore (human preference DPO), DreamSim (semantic CLIP/DINO ensemble)
+2. A/B model comparison: `difftest compare --run-a <id> --run-b <id>` with Welch's t-test and effect size
+3. Statistical significance: 95% confidence intervals in all output formats, `--min-samples` flag
+4. Negative prompt support in `@difftest.test` decorator, passed through to all generator backends
+5. Additional prompt suites: medical, architecture, food, animals, abstract (10 prompts each)
+
+### Phase 8: Ecosystem & Distribution
+
+**Goal**: Package, distribute, and integrate difftest across the Python and CI/CD ecosystem.
+
+1. PyPI publication via maturin binary wheels (Linux/macOS/Windows) with GitHub Actions trusted publishing
+2. pytest plugin (`pytest-difftest`): collect difftest decorators as pytest items, `model` fixture injection
+3. Docker support: multi-stage Dockerfile (Python + PyTorch + CUDA + Rust), docker-compose with optional ComfyUI sidecar
+4. GitHub Action for Marketplace: `uses: SouKangC/difftest@v1` with model/metrics/device inputs
+5. Expanded examples and documentation: metrics guide, troubleshooting, multi-metric and agent workflow examples
+
+### Phase 9: Observability & Reporting
+
+**Goal**: Rich visualization, monitoring, and data export for continuous quality tracking.
+
+1. Inline SVG trend charts in HTML reports showing metric values over last N runs (no JS deps)
+2. Web dashboard (`difftest dashboard`): local Axum server with metric trends, image galleries, run comparison
+3. Notification integrations: Slack, Discord, and email webhooks for run summaries and failure alerts
+4. Benchmark mode (`difftest benchmark`): track inference speed, peak memory, images/sec alongside quality
+5. Data export (`difftest export`): CSV, Parquet, JSON dump of full history with date/model/test filters
+
+### Phase 10: Advanced Agents & Parallel Execution
+
+**Goal**: Scale difftest with parallelism, automation, and multi-model intelligence.
+
+1. Parallel test execution via rayon (`--jobs N`): concurrent metric computation with GIL-aware scheduling
+2. Watch mode (`difftest watch`): filesystem monitoring with incremental re-runs on test file changes
+3. Agent optimization loop: diagnose → suggest adjustments → auto-verify in iterative refinement
+4. Multi-model sweep (`--models "a,b,c"`): test multiple models in one invocation with comparison report
+5. Multi-agent ensemble scoring: 2+ VLM providers score same image, report agreement and flag disagreements
+
 ## License
 
 MIT
