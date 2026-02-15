@@ -1,0 +1,16 @@
+{
+  "name": "text",
+  "description": "Text rendering prompts — tests the model's ability to generate readable text",
+  "prompts": [
+    "a wooden sign that reads OPEN in bold letters",
+    "a birthday cake with the word HAPPY written in icing",
+    "a neon sign glowing with the word CAFE in a window",
+    "a chalkboard menu with the text COFFEE SHOP written on it",
+    "a street sign that says MAIN STREET in white letters",
+    "a book cover with the title THE GREAT ADVENTURE in serif font",
+    "a t-shirt with the word LOVE printed across the chest",
+    "a license plate that reads ABC 1234 on a car bumper",
+    "a storefront with a banner reading GRAND OPENING",
+    "a handwritten note on paper that says THANK YOU"
+  ]
+}

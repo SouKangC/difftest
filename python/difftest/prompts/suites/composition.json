@@ -1,0 +1,16 @@
+{
+  "name": "composition",
+  "description": "Spatial composition prompts — tests object placement and relationships",
+  "prompts": [
+    "a red ball to the left of a blue cube on a white table",
+    "three apples arranged in a triangle on a wooden surface",
+    "a cat sitting on top of a stack of books",
+    "a small house between two tall trees in a meadow",
+    "a bird flying above a lake with mountains in the background",
+    "a person standing in front of a mirror, reflection visible",
+    "a row of five colored pencils lined up on a desk",
+    "a dog sitting under an umbrella in the rain",
+    "a vase of flowers next to a window with curtains",
+    "two people sitting across from each other at a small table"
+  ]
+}

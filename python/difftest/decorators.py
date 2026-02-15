@@ -21,11 +21,13 @@ class TestCase:
 
 
 def test(
-    prompts: list[str],
-    metrics: list[str],
-    threshold: dict[str, float],
+    prompts: list[str] | None = None,
+    metrics: list[str] | None = None,
+    threshold: dict[str, float] | None = None,
     seeds: list[int] | None = None,
     reference_dir: str | None = None,
+    suite: str | None = None,
+    variables: dict[str, list[str]] | None = None,
 ) -> Callable:
     """Register a quality test.
 
@@ -37,11 +39,16 @@ def test(
     def test_basic(model):
         pass
     """
+    if metrics is None:
+        metrics = []
+    if threshold is None:
+        threshold = {}
 
     def decorator(func: Callable) -> Callable:
+        resolved = _resolve_prompts(suite, prompts, variables)
         _registry[func.__name__] = TestCase(
             name=func.__name__,
-            prompts=prompts,
+            prompts=resolved,
             seeds=seeds or [42, 123, 456],
             metrics=metrics,
             thresholds=threshold,
@@ -54,10 +61,12 @@ def test(
 
 
 def visual_regression(
-    prompts: list[str],
-    seeds: list[int],
+    prompts: list[str] | None = None,
+    seeds: list[int] | None = None,
     baseline_dir: str = "baselines/",
     ssim_threshold: float = 0.85,
+    suite: str | None = None,
+    variables: dict[str, list[str]] | None = None,
 ) -> Callable:
     """Register a visual regression test.
 
@@ -68,11 +77,14 @@ def visual_regression(
     def test_deterministic(model):
         pass
     """
+    if seeds is None:
+        seeds = [42, 123, 456]
 
     def decorator(func: Callable) -> Callable:
+        resolved = _resolve_prompts(suite, prompts, variables)
         _registry[func.__name__] = TestCase(
             name=func.__name__,
-            prompts=prompts,
+            prompts=resolved,
             seeds=seeds,
             metrics=["ssim"],
             thresholds={"ssim": ssim_threshold},
@@ -82,6 +94,24 @@ def visual_regression(
         return func
 
     return decorator
+
+
+def _resolve_prompts(
+    suite: str | None,
+    prompts: list[str] | None,
+    variables: dict[str, list[str]] | None,
+) -> list[str]:
+    """Resolve prompts from suite/explicit list, then apply template expansion."""
+    from difftest.prompts.registry import get_prompts as _get_prompts
+
+    resolved = _get_prompts(suite=suite, prompts=prompts)
+
+    if variables:
+        from difftest.prompts.templating import expand_prompts
+
+        resolved = expand_prompts(resolved, variables)
+
+    return resolved
 
 
 def metric(name: str) -> Callable:

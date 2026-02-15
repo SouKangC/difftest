@@ -1,0 +1,16 @@
+{
+  "name": "hands",
+  "description": "Hand generation prompts — a common failure case for diffusion models",
+  "prompts": [
+    "a close-up of two hands shaking in a business setting",
+    "a person holding a coffee mug with both hands",
+    "hands playing piano keys, top-down view",
+    "a hand writing with a fountain pen on parchment paper",
+    "two hands forming a heart shape against a sunset sky",
+    "a hand reaching out to pick an apple from a tree",
+    "hands knitting with colorful yarn and wooden needles",
+    "a person counting on their fingers, all five visible",
+    "hands holding a small bird gently with open palms",
+    "an artist's hand painting on a canvas with a fine brush"
+  ]
+}

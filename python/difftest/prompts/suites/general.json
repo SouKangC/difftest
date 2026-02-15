@@ -1,0 +1,16 @@
+{
+  "name": "general",
+  "description": "General-purpose prompts covering common generation scenarios",
+  "prompts": [
+    "a cat sitting on a windowsill, sunlight streaming in",
+    "a red sports car parked on a mountain road at sunset",
+    "a bowl of ramen with steam rising, chopsticks resting on the side",
+    "an astronaut riding a horse on the surface of the moon",
+    "a cozy cabin in a snowy forest with smoke from the chimney",
+    "a golden retriever playing fetch on a sandy beach",
+    "a still life painting of fruit on a wooden table",
+    "a futuristic cityscape at night with neon lights reflecting on wet streets",
+    "a butterfly landing on a sunflower in a summer garden",
+    "a medieval castle on a cliff overlooking the ocean at dawn"
+  ]
+}

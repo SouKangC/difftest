@@ -1,0 +1,16 @@
+{
+  "name": "styles",
+  "description": "Artistic style prompts — tests style adherence across different art movements",
+  "prompts": [
+    "a landscape in the style of impressionism, soft brushstrokes",
+    "a portrait in art nouveau style with ornate floral borders",
+    "a city street scene rendered as a watercolor painting",
+    "a still life in the style of cubism with geometric shapes",
+    "a garden scene as a Japanese ukiyo-e woodblock print",
+    "a mountain landscape in the style of traditional Chinese ink wash",
+    "a room interior rendered in pop art style with bold colors",
+    "a seascape painted in the style of romanticism with dramatic skies",
+    "a forest scene in pixel art style with visible square pixels",
+    "a portrait in the style of art deco with geometric patterns and gold"
+  ]
+}

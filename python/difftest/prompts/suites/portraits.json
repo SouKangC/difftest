@@ -1,0 +1,16 @@
+{
+  "name": "portraits",
+  "description": "Portrait and face generation prompts",
+  "prompts": [
+    "a portrait of an elderly woman with silver hair, soft studio lighting",
+    "a young man with curly hair smiling, natural daylight",
+    "a close-up portrait of a child with freckles, bokeh background",
+    "a professional headshot of a woman in a business suit",
+    "a dramatic portrait with Rembrandt lighting, dark background",
+    "a portrait of a person wearing vintage round glasses, warm tones",
+    "a side profile portrait with rim lighting against a dark backdrop",
+    "a portrait of twins standing side by side, matching outfits",
+    "an expressive portrait of a musician playing violin, motion blur",
+    "a portrait of a person with face paint in tribal patterns"
+  ]
+}
