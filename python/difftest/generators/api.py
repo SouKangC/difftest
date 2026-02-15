@@ -219,6 +219,8 @@ class APIGenerator(BaseGenerator):
         api_key: str | None = None,
         model_id: str = "",
         endpoint: str = "",
+        max_retries: str | int = 0,
+        base_delay: str | float = 1.0,
         **kwargs,
     ):
         try:
@@ -226,6 +228,9 @@ class APIGenerator(BaseGenerator):
         except ImportError:
             from difftest.errors import MissingDependencyError
             raise MissingDependencyError("requests", "api", "API generator")
+
+        self._max_retries = int(max_retries)
+        self._base_delay = float(base_delay)
 
         resolved_key = api_key or os.environ.get("DIFFTEST_API_KEY", "")
 
@@ -256,6 +261,18 @@ class APIGenerator(BaseGenerator):
                 )
             self._adapter = _ReplicateAdapter(resolved_key, model_id)
 
-    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
-        """Generate an image via the configured API provider."""
+    def _generate_impl(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
+        """Internal: generate an image via the configured API provider."""
         return self._adapter.generate(prompt, seed, timeout=timeout)
+
+    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
+        """Generate an image, with optional retry."""
+        if self._max_retries > 0:
+            from difftest.generators.retry import retry_call
+            return retry_call(
+                self._generate_impl,
+                kwargs={"prompt": prompt, "seed": seed, "timeout": timeout},
+                max_retries=self._max_retries,
+                base_delay=self._base_delay,
+            )
+        return self._generate_impl(prompt, seed, timeout=timeout)

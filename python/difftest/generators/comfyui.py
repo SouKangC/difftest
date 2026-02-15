@@ -23,6 +23,8 @@ class ComfyUIGenerator(BaseGenerator):
         self,
         comfyui_url: str = "http://127.0.0.1:8188",
         workflow_path: str | None = None,
+        max_retries: str | int = 0,
+        base_delay: str | float = 1.0,
         **kwargs,
     ):
         try:
@@ -31,6 +33,8 @@ class ComfyUIGenerator(BaseGenerator):
             from difftest.errors import MissingDependencyError
             raise MissingDependencyError("requests", "comfyui", "ComfyUI generator")
 
+        self._max_retries = int(max_retries)
+        self._base_delay = float(base_delay)
         self.base_url = comfyui_url.rstrip("/")
         if workflow_path is None:
             raise ValueError(
@@ -106,8 +110,8 @@ class ComfyUIGenerator(BaseGenerator):
         resp.raise_for_status()
         return Image.open(io.BytesIO(resp.content))
 
-    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
-        """Generate a single image via ComfyUI workflow execution."""
+    def _generate_impl(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
+        """Internal: generate a single image via ComfyUI workflow execution."""
         import copy
 
         workflow = copy.deepcopy(self.workflow_template)
@@ -133,4 +137,17 @@ class ComfyUIGenerator(BaseGenerator):
         raise GeneratorError(
             "comfyui",
             f"Workflow completed but produced no output images (prompt_id={prompt_id})",
+            retryable=True,
         )
+
+    def generate(self, prompt: str, seed: int, *, timeout: int | None = None, **kwargs) -> Image.Image:
+        """Generate a single image, with optional retry."""
+        if self._max_retries > 0:
+            from difftest.generators.retry import retry_call
+            return retry_call(
+                self._generate_impl,
+                kwargs={"prompt": prompt, "seed": seed, "timeout": timeout},
+                max_retries=self._max_retries,
+                base_delay=self._base_delay,
+            )
+        return self._generate_impl(prompt, seed, timeout=timeout)
