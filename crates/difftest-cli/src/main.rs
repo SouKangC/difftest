@@ -1,6 +1,8 @@
 mod agent;
 mod baseline;
 mod bridge;
+mod cache;
+mod config;
 mod run;
 
 use clap::{Parser, Subcommand};
@@ -25,9 +27,11 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+    let cfg = config::load_config();
+
     let result = match cli.command {
-        Commands::Run(args) => run::execute(args),
-        Commands::Baseline(args) => baseline::execute(args),
+        Commands::Run(args) => run::execute(args, &cfg),
+        Commands::Baseline(args) => baseline::execute(args, &cfg),
         Commands::Agent(args) => agent::execute(args),
     };
 

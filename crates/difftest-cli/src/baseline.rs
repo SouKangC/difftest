@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Instant;
 
 use clap::{Args, Subcommand};
@@ -7,6 +6,8 @@ use pyo3::types::PyList;
 
 use difftest_core::error::DifftestError;
 use difftest_core::suite::TestType;
+
+use crate::config::{self, DifftestConfig};
 
 #[derive(Args)]
 pub struct BaselineArgs {
@@ -25,24 +26,24 @@ pub enum BaselineCommand {
 #[derive(Args, Clone)]
 pub struct BaselineSaveArgs {
     /// HuggingFace model ID or local path (required for diffusers generator)
-    #[arg(long, default_value = "")]
-    model: String,
+    #[arg(long)]
+    model: Option<String>,
 
     /// Device to run on (cuda:0, mps, cpu)
-    #[arg(long, default_value = "cpu")]
-    device: String,
+    #[arg(long)]
+    device: Option<String>,
 
     /// Directory containing test_*.py files
-    #[arg(long, default_value = "tests/")]
-    test_dir: String,
+    #[arg(long)]
+    test_dir: Option<String>,
 
     /// Directory to store baseline images
-    #[arg(long, default_value = "baselines/")]
-    baseline_dir: String,
+    #[arg(long)]
+    baseline_dir: Option<String>,
 
     /// Generator backend: diffusers, comfyui, api
-    #[arg(long, default_value = "diffusers")]
-    generator: String,
+    #[arg(long)]
+    generator: Option<String>,
 
     /// ComfyUI server URL (for --generator comfyui)
     #[arg(long)]
@@ -63,39 +64,50 @@ pub struct BaselineSaveArgs {
     /// API endpoint URL (for --generator api with custom provider)
     #[arg(long)]
     endpoint: Option<String>,
+
+    /// Substring filter on test names
+    #[arg(long)]
+    filter: Option<String>,
+
+    /// Run specific test(s) by exact name (repeatable)
+    #[arg(long = "test", value_name = "NAME")]
+    test_names: Vec<String>,
 }
 
-fn build_generator_config(args: &BaselineSaveArgs) -> HashMap<String, String> {
-    let mut config = HashMap::new();
-    if !args.model.is_empty() {
-        config.insert("model_id".to_string(), args.model.clone());
-    }
-    config.insert("device".to_string(), args.device.clone());
-    if let Some(ref url) = args.comfyui_url {
-        config.insert("comfyui_url".to_string(), url.clone());
-    }
-    if let Some(ref wf) = args.workflow {
-        config.insert("workflow_path".to_string(), wf.clone());
-    }
-    if let Some(ref provider) = args.provider {
-        config.insert("provider".to_string(), provider.clone());
-    }
-    if let Some(ref key) = args.api_key {
-        config.insert("api_key".to_string(), key.clone());
-    }
-    if let Some(ref ep) = args.endpoint {
-        config.insert("endpoint".to_string(), ep.clone());
-    }
-    config
-}
-
-pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
+pub fn execute(args: BaselineArgs, cfg: &DifftestConfig) -> difftest_core::error::Result<()> {
     let save_args = match args.command {
         BaselineCommand::Save(a) | BaselineCommand::Update(a) => a,
     };
 
-    let generator_name = save_args.generator.clone();
-    let generator_config = build_generator_config(&save_args);
+    let model = config::resolve_string(&save_args.model, &cfg.model, "");
+    let device = config::resolve_string(&save_args.device, &cfg.device, "cpu");
+    let test_dir = config::resolve_string(&save_args.test_dir, &cfg.test_dir, "tests/");
+    let baseline_dir = config::resolve_string(&save_args.baseline_dir, &cfg.baseline_dir, "baselines/");
+    let generator_name = config::resolve_string(&save_args.generator, &cfg.generator, "diffusers");
+    let comfyui_url = config::resolve_option(&save_args.comfyui_url, &cfg.comfyui_url);
+    let workflow = config::resolve_option(&save_args.workflow, &cfg.workflow);
+    let provider = config::resolve_option(&save_args.provider, &cfg.provider);
+    let api_key = config::resolve_option(&save_args.api_key, &cfg.api_key);
+    let endpoint = config::resolve_option(&save_args.endpoint, &cfg.endpoint);
+    let filter = config::resolve_option(&save_args.filter, &cfg.filter);
+    let mut test_names = save_args.test_names.clone();
+    if test_names.is_empty() {
+        if let Some(ref cfg_tests) = cfg.test {
+            test_names = cfg_tests.clone();
+        }
+    }
+
+    let generator_config = config::build_generator_config(
+        &model,
+        &device,
+        &comfyui_url,
+        &workflow,
+        &provider,
+        &api_key,
+        &endpoint,
+        &cfg.retry,
+        &cfg.image_timeout,
+    );
 
     Python::attach(|py| -> PyResult<()> {
         let sys = py.import("sys")?;
@@ -103,22 +115,35 @@ pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
         py_path.insert(0, "python")?;
 
         // Discover tests — only visual_regression tests need baselines
-        println!("Discovering visual regression tests in {}...", save_args.test_dir);
+        println!("Discovering visual regression tests in {}...", test_dir);
         let suite = crate::bridge::discover_and_build_suite(
             py,
-            &save_args.test_dir,
-            &save_args.model,
-            &save_args.device,
+            &test_dir,
+            &model,
+            &device,
             ".difftest/outputs",
             &generator_name,
             &generator_config,
         )?;
 
-        let vr_tests: Vec<_> = suite
+        let mut vr_tests: Vec<_> = suite
             .tests
             .iter()
             .filter(|t| t.test_type == TestType::VisualRegression)
             .collect();
+
+        // Apply filtering
+        if !test_names.is_empty() || filter.is_some() {
+            vr_tests.retain(|t| {
+                if !test_names.is_empty() && test_names.contains(&t.name) {
+                    return true;
+                }
+                if let Some(ref f) = filter {
+                    return t.name.contains(f.as_str());
+                }
+                false
+            });
+        }
 
         if vr_tests.is_empty() {
             println!("No visual regression tests found.");
@@ -128,7 +153,7 @@ pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
 
         // Initialize generator
         if generator_name == "diffusers" {
-            println!("Loading model {}...", save_args.model);
+            println!("Loading model {}...", model);
         } else {
             println!("Initializing {} generator...", generator_name);
         }
@@ -138,10 +163,10 @@ pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
             let start = Instant::now();
             println!("Generating baselines for {}...", test_case.name);
 
-            let baseline_dir = test_case
+            let test_baseline_dir = test_case
                 .baseline_dir
                 .as_deref()
-                .unwrap_or(&save_args.baseline_dir);
+                .unwrap_or(&baseline_dir);
 
             let mut images: Vec<(String, String, u64)> = Vec::new();
 
@@ -157,12 +182,12 @@ pub fn execute(args: BaselineArgs) -> difftest_core::error::Result<()> {
                 }
             }
 
-            let saved = runner.save_baselines(py, &test_case.name, &images, baseline_dir)?;
+            let saved = runner.save_baselines(py, &test_case.name, &images, test_baseline_dir)?;
             let elapsed = start.elapsed().as_millis();
             println!(
                 "  Saved {} baseline image(s) to {}/{} ({}ms)",
                 saved.len(),
-                baseline_dir,
+                test_baseline_dir,
                 test_case.name,
                 elapsed
             );

@@ -11,19 +11,21 @@ use difftest_core::report;
 use difftest_core::runner::{GeneratedImage, MetricResult, SuiteResult, TestResult};
 use difftest_core::suite::{MetricCategory, TestType};
 
+use crate::config::{self, DifftestConfig};
+
 #[derive(Args)]
 pub struct RunArgs {
     /// HuggingFace model ID or local path (required for diffusers generator)
-    #[arg(long, default_value = "")]
-    model: String,
+    #[arg(long)]
+    model: Option<String>,
 
     /// Device to run on (cuda:0, mps, cpu)
-    #[arg(long, default_value = "cpu")]
-    device: String,
+    #[arg(long)]
+    device: Option<String>,
 
     /// Directory containing test_*.py files
-    #[arg(long, default_value = "tests/")]
-    test_dir: String,
+    #[arg(long)]
+    test_dir: Option<String>,
 
     /// Write JSON results to this path
     #[arg(long)]
@@ -42,8 +44,8 @@ pub struct RunArgs {
     markdown: Option<String>,
 
     /// Generator backend: diffusers, comfyui, api
-    #[arg(long, default_value = "diffusers")]
-    generator: String,
+    #[arg(long)]
+    generator: Option<String>,
 
     /// ComfyUI server URL (for --generator comfyui)
     #[arg(long)]
@@ -64,42 +66,77 @@ pub struct RunArgs {
     /// API endpoint URL (for --generator api with custom provider)
     #[arg(long)]
     endpoint: Option<String>,
+
+    /// Substring filter on test names
+    #[arg(long)]
+    filter: Option<String>,
+
+    /// Run specific test(s) by exact name (repeatable)
+    #[arg(long = "test", value_name = "NAME")]
+    test_names: Vec<String>,
+
+    /// List matched tests without executing them
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Suite-level timeout in seconds
+    #[arg(long)]
+    timeout: Option<u64>,
+
+    /// Per-image generation timeout in seconds
+    #[arg(long)]
+    image_timeout: Option<u64>,
+
+    /// Reuse cached images when inputs haven't changed
+    #[arg(long)]
+    incremental: bool,
 }
 
-fn build_generator_config(args: &RunArgs) -> HashMap<String, String> {
-    let mut config = HashMap::new();
-    if !args.model.is_empty() {
-        config.insert("model_id".to_string(), args.model.clone());
-    }
-    config.insert("device".to_string(), args.device.clone());
-    if let Some(ref url) = args.comfyui_url {
-        config.insert("comfyui_url".to_string(), url.clone());
-    }
-    if let Some(ref wf) = args.workflow {
-        config.insert("workflow_path".to_string(), wf.clone());
-    }
-    if let Some(ref provider) = args.provider {
-        config.insert("provider".to_string(), provider.clone());
-    }
-    if let Some(ref key) = args.api_key {
-        config.insert("api_key".to_string(), key.clone());
-    }
-    if let Some(ref ep) = args.endpoint {
-        config.insert("endpoint".to_string(), ep.clone());
-    }
-    config
-}
-
-pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
+pub fn execute(args: RunArgs, cfg: &DifftestConfig) -> difftest_core::error::Result<()> {
     let suite_start = Instant::now();
 
-    let html_path = args.html.clone();
-    let junit_path = args.junit.clone();
-    let markdown_path = args.markdown.clone();
-    let model_id = args.model.clone();
-    let device = args.device.clone();
-    let generator_name = args.generator.clone();
-    let generator_config = build_generator_config(&args);
+    // Resolve CLI > config > default
+    let model = config::resolve_string(&args.model, &cfg.model, "");
+    let device = config::resolve_string(&args.device, &cfg.device, "cpu");
+    let test_dir = config::resolve_string(&args.test_dir, &cfg.test_dir, "tests/");
+    let generator_name = config::resolve_string(&args.generator, &cfg.generator, "diffusers");
+    let output = config::resolve_option(&args.output, &cfg.output);
+    let html_path = config::resolve_option(&args.html, &cfg.html);
+    let junit_path = config::resolve_option(&args.junit, &cfg.junit);
+    let markdown_path = config::resolve_option(&args.markdown, &cfg.markdown);
+    let comfyui_url = config::resolve_option(&args.comfyui_url, &cfg.comfyui_url);
+    let workflow = config::resolve_option(&args.workflow, &cfg.workflow);
+    let provider = config::resolve_option(&args.provider, &cfg.provider);
+    let api_key = config::resolve_option(&args.api_key, &cfg.api_key);
+    let endpoint = config::resolve_option(&args.endpoint, &cfg.endpoint);
+    let timeout = args.timeout.or(cfg.timeout);
+    let image_timeout = args.image_timeout.or(cfg.image_timeout);
+    let incremental = config::resolve_bool(args.incremental, &cfg.incremental);
+    let filter = config::resolve_option(&args.filter, &cfg.filter);
+    let mut test_names = args.test_names.clone();
+    if test_names.is_empty() {
+        if let Some(ref cfg_tests) = cfg.test {
+            test_names = cfg_tests.clone();
+        }
+    }
+    let generator_config = config::build_generator_config(
+        &model,
+        &device,
+        &comfyui_url,
+        &workflow,
+        &provider,
+        &api_key,
+        &endpoint,
+        &cfg.retry,
+        &image_timeout,
+    );
+
+    // Incremental cache
+    let mut cache = if incremental {
+        Some(crate::cache::CacheManifest::load(Path::new(".difftest/cache.json")))
+    } else {
+        None
+    };
 
     let suite_result: SuiteResult = Python::attach(|py| -> PyResult<SuiteResult> {
         // Add the python/ directory to Python path so `difftest` package is importable
@@ -108,22 +145,53 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
         py_path.insert(0, "python")?;
 
         // Discover tests
-        println!("Discovering tests in {}...", args.test_dir);
+        println!("Discovering tests in {}...", test_dir);
         let suite = crate::bridge::discover_and_build_suite(
             py,
-            &args.test_dir,
-            &args.model,
-            &args.device,
+            &test_dir,
+            &model,
+            &device,
             ".difftest/outputs",
-            &args.generator,
+            &generator_name,
             &generator_config,
         )?;
 
-        if suite.tests.is_empty() {
+        // Filter tests
+        let filtered_tests = filter_tests(suite.tests, filter.as_deref(), &test_names);
+
+        if filtered_tests.is_empty() {
             println!("No tests found.");
             return Ok(SuiteResult::from_results(vec![], 0));
         }
-        println!("Found {} test(s)", suite.tests.len());
+        println!("Found {} test(s)", filtered_tests.len());
+
+        // Dry-run: list tests and exit
+        if args.dry_run {
+            println!("\nDry-run mode — tests that would run:\n");
+            for t in &filtered_tests {
+                let test_type = match t.test_type {
+                    TestType::Quality => "quality",
+                    TestType::VisualRegression => "visual_regression",
+                };
+                let metrics: Vec<&str> = t.metrics.iter().map(|m| m.name.as_str()).collect();
+                println!(
+                    "  {} (type={}, prompts={}, seeds={}, metrics=[{}])",
+                    t.name,
+                    test_type,
+                    t.prompts.len(),
+                    t.seeds.len(),
+                    metrics.join(", "),
+                );
+            }
+            println!();
+            return Ok(SuiteResult::from_results(vec![], 0));
+        }
+
+        // Rebuild suite with filtered tests
+        let suite = difftest_core::suite::TestSuite {
+            tests: filtered_tests,
+            config: suite.config,
+        };
 
         // Collect unique metric names for initialization
         let mut required_metrics: Vec<String> = suite
@@ -136,7 +204,7 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
 
         // Initialize generator and metrics
         if generator_name == "diffusers" {
-            println!("Loading model {}...", args.model);
+            println!("Loading model {}...", model);
         } else {
             println!("Initializing {} generator...", generator_name);
         }
@@ -146,15 +214,25 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
         // Run each test
         let mut results = Vec::new();
         for test_case in &suite.tests {
+            // Suite timeout check
+            if let Some(timeout_secs) = timeout {
+                if suite_start.elapsed().as_secs() >= timeout_secs {
+                    println!(
+                        "\x1b[33m⚠ Suite timeout ({timeout_secs}s) exceeded, skipping remaining tests\x1b[0m"
+                    );
+                    break;
+                }
+            }
+
             let test_start = Instant::now();
             print!("Running {}... ", test_case.name);
 
             let test_result = match test_case.test_type {
                 TestType::VisualRegression => {
-                    run_visual_regression(py, &runner, test_case, &suite)?
+                    run_visual_regression(py, &runner, test_case, &suite, &mut cache)?
                 }
                 TestType::Quality => {
-                    run_quality_test(py, &runner, test_case, &suite)?
+                    run_quality_test(py, &runner, test_case, &suite, &mut cache)?
                 }
             };
 
@@ -177,29 +255,41 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
         Ok(SuiteResult::from_results(results, suite_duration))
     }).map_err(|e| DifftestError::Generation(e.to_string()))?;
 
+    // Save cache manifest if incremental
+    if let Some(ref cache) = cache {
+        if let Err(e) = cache.save(Path::new(".difftest/cache.json")) {
+            eprintln!("Warning: failed to save cache: {e}");
+        }
+    }
+
+    // Dry-run exits early (no reports)
+    if args.dry_run {
+        return Ok(());
+    }
+
     // Console report
     report::generate_console_report(&suite_result);
 
     // JSON report
-    if let Some(output_path) = &args.output {
+    if let Some(ref output_path) = output {
         report::generate_json_report(&suite_result, Path::new(output_path))?;
         println!("JSON report written to {output_path}");
     }
 
     // HTML report
-    if let Some(html_path) = &html_path {
+    if let Some(ref html_path) = html_path {
         difftest_core::html_report::generate_html_report(&suite_result, Path::new(html_path))?;
         println!("HTML report written to {html_path}");
     }
 
     // JUnit XML report
-    if let Some(junit_path) = &junit_path {
+    if let Some(ref junit_path) = junit_path {
         difftest_core::junit::generate_junit_xml(&suite_result, Path::new(junit_path))?;
         println!("JUnit XML report written to {junit_path}");
     }
 
     // Markdown report
-    if let Some(markdown_path) = &markdown_path {
+    if let Some(ref markdown_path) = markdown_path {
         difftest_core::markdown::generate_markdown_report(
             &suite_result,
             Path::new(markdown_path),
@@ -213,7 +303,7 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
         std::fs::create_dir_all(db_dir)?;
     }
     let storage = difftest_core::storage::Storage::new(&db_dir.join("results.db"))?;
-    let run_id = storage.save_run(&model_id, &device, &suite_result)?;
+    let run_id = storage.save_run(&model, &device, &suite_result)?;
     println!("Results saved to .difftest/results.db (run #{run_id})");
 
     // Exit code
@@ -224,11 +314,34 @@ pub fn execute(args: RunArgs) -> difftest_core::error::Result<()> {
     Ok(())
 }
 
+fn filter_tests(
+    tests: Vec<difftest_core::suite::TestCase>,
+    filter: Option<&str>,
+    names: &[String],
+) -> Vec<difftest_core::suite::TestCase> {
+    if filter.is_none() && names.is_empty() {
+        return tests;
+    }
+    tests
+        .into_iter()
+        .filter(|t| {
+            if !names.is_empty() && names.contains(&t.name) {
+                return true;
+            }
+            if let Some(f) = filter {
+                return t.name.contains(f);
+            }
+            false
+        })
+        .collect()
+}
+
 fn run_quality_test(
     py: Python<'_>,
     runner: &crate::bridge::PyTestRunner,
     test_case: &difftest_core::suite::TestCase,
     suite: &difftest_core::suite::TestSuite,
+    cache: &mut Option<crate::cache::CacheManifest>,
 ) -> PyResult<TestResult> {
     let mut all_images = Vec::new();
     let mut metric_scores: HashMap<String, Vec<f64>> = HashMap::new();
@@ -251,12 +364,64 @@ fn run_quality_test(
 
     for prompt in &test_case.prompts {
         for &seed in &test_case.seeds {
-            let image_path = runner.generate_image(
-                py,
-                prompt,
-                seed,
-                suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
-            )?;
+            let image_path = if let Some(ref mut manifest) = cache {
+                let key = crate::cache::CacheManifest::cache_key(
+                    &suite.config.model_id,
+                    prompt,
+                    seed,
+                    &suite.config.generator,
+                );
+                if let Some(entry) = manifest.lookup(&key) {
+                    if Path::new(&entry.image_path).exists() {
+                        entry.image_path.clone()
+                    } else {
+                        let path = runner.generate_image(
+                            py,
+                            prompt,
+                            seed,
+                            suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                        )?;
+                        manifest.insert(
+                            key,
+                            crate::cache::CacheEntry {
+                                image_path: path.clone(),
+                                model_id: suite.config.model_id.clone(),
+                                prompt: prompt.clone(),
+                                seed,
+                                generator: suite.config.generator.clone(),
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
+                        path
+                    }
+                } else {
+                    let path = runner.generate_image(
+                        py,
+                        prompt,
+                        seed,
+                        suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                    )?;
+                    manifest.insert(
+                        key,
+                        crate::cache::CacheEntry {
+                            image_path: path.clone(),
+                            model_id: suite.config.model_id.clone(),
+                            prompt: prompt.clone(),
+                            seed,
+                            generator: suite.config.generator.clone(),
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        },
+                    );
+                    path
+                }
+            } else {
+                runner.generate_image(
+                    py,
+                    prompt,
+                    seed,
+                    suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                )?
+            };
 
             all_images.push(GeneratedImage {
                 path: image_path.clone(),
@@ -340,6 +505,7 @@ fn run_visual_regression(
     runner: &crate::bridge::PyTestRunner,
     test_case: &difftest_core::suite::TestCase,
     suite: &difftest_core::suite::TestSuite,
+    cache: &mut Option<crate::cache::CacheManifest>,
 ) -> PyResult<TestResult> {
     let baseline_dir = test_case
         .baseline_dir
@@ -352,13 +518,65 @@ fn run_visual_regression(
 
     for prompt in &test_case.prompts {
         for &seed in &test_case.seeds {
-            // Generate current image
-            let image_path = runner.generate_image(
-                py,
-                prompt,
-                seed,
-                suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
-            )?;
+            // Generate current image (with cache support)
+            let image_path = if let Some(ref mut manifest) = cache {
+                let key = crate::cache::CacheManifest::cache_key(
+                    &suite.config.model_id,
+                    prompt,
+                    seed,
+                    &suite.config.generator,
+                );
+                if let Some(entry) = manifest.lookup(&key) {
+                    if Path::new(&entry.image_path).exists() {
+                        entry.image_path.clone()
+                    } else {
+                        let path = runner.generate_image(
+                            py,
+                            prompt,
+                            seed,
+                            suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                        )?;
+                        manifest.insert(
+                            key,
+                            crate::cache::CacheEntry {
+                                image_path: path.clone(),
+                                model_id: suite.config.model_id.clone(),
+                                prompt: prompt.clone(),
+                                seed,
+                                generator: suite.config.generator.clone(),
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
+                        path
+                    }
+                } else {
+                    let path = runner.generate_image(
+                        py,
+                        prompt,
+                        seed,
+                        suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                    )?;
+                    manifest.insert(
+                        key,
+                        crate::cache::CacheEntry {
+                            image_path: path.clone(),
+                            model_id: suite.config.model_id.clone(),
+                            prompt: prompt.clone(),
+                            seed,
+                            generator: suite.config.generator.clone(),
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        },
+                    );
+                    path
+                }
+            } else {
+                runner.generate_image(
+                    py,
+                    prompt,
+                    seed,
+                    suite.config.output_dir.to_str().unwrap_or(".difftest/outputs"),
+                )?
+            };
 
             all_images.push(GeneratedImage {
                 path: image_path.clone(),
